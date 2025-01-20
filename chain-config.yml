@@ -1,0 +1,80 @@
+network-config:
+  ronin-testnet:
+    chain-id: 2021
+    rpc-endpoints:
+      - https://saigon-archive.roninchain.com/rpc
+    companion-network: sepolia
+    gateway: 0xcee681c9108c42c710c6a8a949307d5f13c9f3ca
+    start-block: 0
+    end-block: 0
+    query-batch-size: 100
+    tokens: []
+  sepolia:
+    chain-id: 11155111
+    rpc-endpoints:
+      - https://1rpc.io/sepolia
+    companion-network: ronin-testnet
+    gateway: 0x06855f31dF1d3D25cE486CF09dB49bDa535D2a9e
+    start-block: 0
+    end-block: 0
+    query-batch-size: 100
+    tokens: []
+  ronin-mainnet:
+    chain-id: 2020
+    rpc-endpoints:
+      - http://34.135.81.204:8545
+      # - https://api-archived.roninchain.com/rpc
+    companion-network: ethereum
+    gateway: 0x0CF8fF40a508bdBc39fBe1Bb679dCBa64E65C7Df
+    start-block: 14765762
+    end-block: 41758294
+    # end-block: 15000000
+    query-batch-size: 5000
+    tokens:
+      - 0x0b7007c13325c48911f73a2dad5fa5dcbf808adc
+      - 0x18d2bdef572c67127e218c425f546fe64430a92c
+      - 0x1c306872bc82525d72bf3562e8f0aa3f8f26e857
+      - 0x294311a8c37f0744f99eb152c419d4d3d6fec1c7
+      - 0x7894b3088d069e70895effa4e8f7d2c243fd04c1
+      - 0x7e73630f81647bcfd7b1f2c04c1c662d17d4577e
+      - 0x7eae20d11ef8c779433eb24503def900b9d28ad7
+      - 0x97a9107c1793bc407d6f527b77e7fff4d812bece
+      - 0xa8754b9fa15fc18bb59458815510e40a12cd2014
+      - 0xc99a6a985ed2cac1ef41640596c5a5f9f4e19ef5
+      - 0xd61bbbb8369c46c15868ad9263a2710aced156c4
+      - 0xf80132fc0a86add011bffce3aedd60a86e3d704d
+      - 0x1a89ecd466a23e98f07111b0510a2d6c1cd5e400
+
+  ethereum:
+    chain-id: 1
+    rpc-endpoints:
+      - https://eth.llamarpc.com
+      - https://ethereum.blockpi.network/v1/rpc/public
+      - https://eth-mainnet.public.blastapi.io
+      - https://mainnet.infura.io/v3/e91b12baa6ea47159e835ae6de2265fd
+      - https://rpc.ankr.com/eth
+      - https://eth.blockrazor.xyz
+      - https://eth.rpc.blxrbdn.com
+    companion-network: ronin-mainnet
+    gateway: 0x64192819Ac13Ef72bF6b5AE239AC672B43a9AF08
+    start-block: 15006576
+    end-block: 21644966
+    query-batch-size: 10000
+    exclude-tx-hashes:
+      
+    tokens:
+      - 0xBB0E17EF65F82Ab018d8EDd776e8DD940327B28b
+      - 0x3429d03c6F7521AeC737a0BBF2E5ddcef2C3Ae31
+      - 0x95b4B8CaD3567B5d7EF7399C2aE1d7070692aB0D
+      - 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48
+      - 0x25f8087EAD173b73D6e8B84329989A8eEA16CF73
+      - 0x94e496474F1725f1c1824cB5BDb92d7691A4F03a
+      - 0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599
+      - 0xCC8Fa225D80b9c7D42F96e9570156c65D6cAAa25
+      - 0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2
+      - 0xFB0489e9753B045DdB35e39c6B0Cc02EC6b99AC5
+      - 0x88D100432F98956b16B66Df56962FD3e5cCd297A
+      - 0x540ddE0739EeFAf90D0Ca05aCa90513Ce89E7e79
+      - 0x153A381D1207862cA003f68600462fAa66A828a7
+ronin: ronin-mainnet
+mainchain: ethereum
