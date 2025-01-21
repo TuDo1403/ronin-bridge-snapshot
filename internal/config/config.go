@@ -17,6 +17,7 @@ type NetworkConfig struct {
 	EndBlock         uint64           `yaml:"end-block"`
 	QueryBatchSize   int              `yaml:"query-batch-size"`
 	Tokens           []common.Address `yaml:"tokens"`
+	ExcludeTxHashes  []common.Hash    `yaml:"exclude-tx-hashes"`
 }
 
 type Config struct {
@@ -28,14 +29,12 @@ type Config struct {
 func LoadConfigFromFile(filePath string) *Config {
 	raw, err := os.ReadFile(filePath)
 	if err != nil {
-
 		log.Fatal("Read file Failed", err)
 	}
 
 	var cfg Config
 	err = yaml.Unmarshal(raw, &cfg)
 	if err != nil {
-
 		log.Fatal("Unmarshal Failed", "Err", err)
 	}
 

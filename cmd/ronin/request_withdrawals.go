@@ -3,7 +3,6 @@ package ronin
 import (
 	"context"
 	// "fmt"
-	"math/big"
 	// "os"
 
 	"fmt"
@@ -11,13 +10,13 @@ import (
 	"ronin-bridge-snapshot/internal/abi/ronin_gateway"
 	"ronin-bridge-snapshot/internal/config"
 	"ronin-bridge-snapshot/internal/util"
+	"ronin-bridge-snapshot/internal/withdrawal"
 	"sort"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/ethereum/go-ethereum/log"
 )
@@ -40,31 +39,30 @@ func RecordRequestWithdrawalsOnRonin(
 	concurrencyLimit := 10
 	sem := make(chan struct{}, concurrencyLimit)
 
-	// Channels for producer->consumer flow
-	rawLogChan := make(chan []types.Log, 10000)
-	sanitizedLogChan := make(chan map[common.Address][]*ronin_gateway.RoninGatewayWithdrawalRequested, 10000)
-	sanitizedTxHashesChan := make(chan map[common.Address][]common.Hash, 10000)
-	receiptHashes := make(chan map[common.Address][]common.Hash, 10000)
-	receiptIds := make(chan map[common.Address][]*big.Int, 10000)
-	quantitiesChan := make(chan map[common.Address][]*big.Int, 10000)
+	eventChan := make(chan []*ronin_gateway.RoninGatewayWithdrawalRequested, 5000)
+	withdrawalReceiptChan := make(chan map[common.Address][]*withdrawal.WithdrawalReceipt, 5000)
 
-	// 1) Goroutine: Sanitize logs (consumes rawLogChan, produces sanitized logs/txhashes)
+	// 1) Goroutine: Sanitize logs (consumes logChan, produces sanitized logs/txHashes)
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		util.SanitizeRequestWithdrawalsLogs(
-			ctx,
-			done,
-			rawLogChan,
-			sanitizedLogChan,
-			sanitizedTxHashesChan,
-			receiptHashes,
-			receiptIds,
-			quantitiesChan,
-		)
+
+		for {
+			select {
+			case <-ctx.Done():
+				log.Trace("Sanitizer routine stopped.")
+				return
+			case <-done:
+				log.Trace("Sanitizer routine received done signal. Exiting.")
+				return
+			case events := <-eventChan:
+				withdrawal.SanitizeRequestWithdrawalEvents(events, util.ToMap(nwCfg.ExcludeTxHashes), withdrawalReceiptChan)
+			}
+		}
+
 	}()
 
-	// 2) Goroutine: Process sanitized logs/txhashes
+	// 2) Goroutine: Process sanitized logs/txHashes
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
@@ -76,47 +74,18 @@ func RecordRequestWithdrawalsOnRonin(
 			case <-ctx.Done():
 				log.Trace("Processor routine stopped (ctx canceled).")
 				return
-
 			case <-done:
 				log.Trace("Processor routine received done signal. Exiting.")
 				return
 
-			case reqWithdrawalEvents := <-sanitizedLogChan:
-				for token, reqWithdrawalBatch := range reqWithdrawalEvents {
-					log.Trace("Record Request Withdrawals", "Token", token)
+			case withdrawalReceipts := <-withdrawalReceiptChan:
+				for token, receipts := range withdrawalReceipts {
 					mu.Lock()
-					util.RecordRequestWithdrawals(trackers[token], reqWithdrawalBatch)
+					trackers[token].RecordWithdrawalReceipts(receipts)
 					mu.Unlock()
 				}
 
 				atomic.AddInt64(&processedBatches, 1)
-				log.Trace("Processed sanitized logs", "Count", len(reqWithdrawalEvents), "BatchCount", atomic.LoadInt64(&processedBatches))
-
-			case sanitizedTxHashes := <-sanitizedTxHashesChan:
-				for token, sanitizedTxHashBatch := range sanitizedTxHashes {
-					mu.Lock()
-					util.RecordSanitizedTxHashes(trackers[token], sanitizedTxHashBatch)
-					mu.Unlock()
-				}
-			case receiptHashes := <-receiptHashes:
-				for token, receiptHashesBatch := range receiptHashes {
-					mu.Lock()
-					util.RecordReceiptHashes(trackers[token], receiptHashesBatch)
-					mu.Unlock()
-				}
-			case receiptIds := <-receiptIds:
-				for token, receiptIdsBatch := range receiptIds {
-					mu.Lock()
-					util.RecordReceiptIds(trackers[token], receiptIdsBatch)
-					mu.Unlock()
-				}
-			case quantities := <-quantitiesChan:
-				for token, quantitiesBatch := range quantities {
-					mu.Lock()
-					util.RecordQuantities(trackers[token], quantitiesBatch)
-					mu.Unlock()
-				}
-
 			}
 		}
 	}()
@@ -171,14 +140,13 @@ func RecordRequestWithdrawalsOnRonin(
 			defer wg.Done()
 			defer func() { <-sem }()
 
-			util.FilterRequestWithdraw(
+			withdrawal.FilterRequestWithdraw(
 				ctx,
-				done,
 				clients,
 				nwCfg.Gateway,
 				sb,
 				eb,
-				rawLogChan,
+				eventChan,
 			)
 		}()
 	}
@@ -187,9 +155,8 @@ func RecordRequestWithdrawalsOnRonin(
 	wg.Wait()
 
 	// Now we know no more logs will be produced, so we can close the channels.
-	close(rawLogChan)
-	close(sanitizedLogChan)
-	close(sanitizedTxHashesChan)
+	close(eventChan)
+	close(withdrawalReceiptChan)
 
 	names := make(map[common.Address]string, len(nwCfg.Tokens))
 	symbols := make(map[common.Address]string, len(nwCfg.Tokens))
@@ -216,7 +183,7 @@ func RecordRequestWithdrawalsOnRonin(
 	}
 
 	// Write TxHashes to file
-	f, err := os.Create("ronin-weth-request-withdrawals.txt")
+	f, err := os.Create("ronin-weth-request-withdrawals-new.txt")
 	if err != nil {
 		fmt.Println(err)
 		f.Close()
@@ -228,8 +195,10 @@ func RecordRequestWithdrawalsOnRonin(
 	wethReceiptIds := trackers[symbol2token["WETH"]].ReceiptIds
 	wethQuantities := trackers[symbol2token["WETH"]].Quantities
 
+	fmt.Fprintf(f, "tx_hash,receipt_hash,receipt_id,quantity\n")
+
 	for i := range wethTxHashes {
-		fmt.Fprintln(f, wethTxHashes[i], wethReceiptHashes[i], wethReceiptIds[i], wethQuantities[i])
+		fmt.Fprintf(f, "%s,%s,%d,%s\n", wethTxHashes[i], wethReceiptHashes[i], wethReceiptIds[i], wethQuantities[i])
 	}
 	err = f.Close()
 	if err != nil {

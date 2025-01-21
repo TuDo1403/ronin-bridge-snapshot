@@ -4,8 +4,11 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"ronin-bridge-snapshot/internal/abi/erc20"
+
+	// "fmt"
+	// "os"
 	"ronin-bridge-snapshot/internal/config"
+	"ronin-bridge-snapshot/internal/erc20_transfer"
 	"ronin-bridge-snapshot/internal/util"
 	"sort"
 	"sync"
@@ -38,26 +41,28 @@ func RecordWithdrawalsOnRonin(
 
 	// Channels for producer->consumer flow
 	rawLogChan := make(chan []types.Log, 10000)
-	sanitizedLogChan := make(chan map[common.Address][]*erc20.Erc20Transfer, 10000)
-	mintTxHashesChan := make(chan map[common.Address][]common.Hash, 10000)
-	sanitizedTxHashesChan := make(chan map[common.Address][]common.Hash, 10000)
+	sanitizedTransferChan := make(chan map[common.Address][]*erc20_transfer.Transfer, 10000)
 
-	// 1) Goroutine: Sanitize logs (consumes rawLogChan, produces sanitized logs/txhashes)
+	// 1) Goroutine: Sanitize logs (consumes rawLogChan, produces sanitized logs/txHashes)
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		util.SanitizeTransferLogs(
-			ctx,
-			done,
-			nwCfg.Gateway,
-			rawLogChan,
-			sanitizedLogChan,
-			mintTxHashesChan,
-			sanitizedTxHashesChan,
-		)
+
+		for {
+			select {
+			case <-ctx.Done():
+				log.Trace("Sanitizer routine stopped (ctx canceled).")
+				return
+			case <-done:
+				log.Trace("Sanitizer routine received done signal. Exiting.")
+				return
+			case rawLogs := <-rawLogChan:
+				erc20_transfer.SanitizeTransferLogs(rawLogs, util.ToMap(nwCfg.ExcludeTxHashes), nwCfg.Gateway, sanitizedTransferChan)
+			}
+		}
 	}()
 
-	// 2) Goroutine: Process sanitized logs/txhashes
+	// 2) Goroutine: Process sanitized logs/txHashes
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
@@ -74,32 +79,14 @@ func RecordWithdrawalsOnRonin(
 				log.Trace("Processor routine received done signal. Exiting.")
 				return
 
-			case transferEvents := <-sanitizedLogChan:
-
-				// Update trackers for each token
-				for token, transferEventBatch := range transferEvents {
+			case transferEvents := <-sanitizedTransferChan:
+				for token, transfers := range transferEvents {
 					mu.Lock()
-					util.RecordTransfer(trackers[token], transferEventBatch)
+					trackers[token].RecordTransfers(transfers)
 					mu.Unlock()
 				}
 
 				atomic.AddInt64(&processedBatches, 1)
-				log.Trace("Processed sanitized logs", "Count", len(transferEvents), "BatchCount", atomic.LoadInt64(&processedBatches))
-
-			case mintTxHashes := <-mintTxHashesChan:
-				// Update trackers for each token
-				for token, mintTxHashBatch := range mintTxHashes {
-					mu.Lock()
-					util.RecordMintTxHashes(trackers[token], mintTxHashBatch)
-					mu.Unlock()
-				}
-			case sanitizedTxHashes := <-sanitizedTxHashesChan:
-				// Update trackers for each token
-				for token, sanitizedTxHashBatch := range sanitizedTxHashes {
-					mu.Lock()
-					util.RecordSanitizedTxHashes(trackers[token], sanitizedTxHashBatch)
-					mu.Unlock()
-				}
 			}
 		}
 	}()
@@ -154,9 +141,8 @@ func RecordWithdrawalsOnRonin(
 			defer wg.Done()
 			defer func() { <-sem }()
 
-			util.FilterERC20TransferForTokens(
+			erc20_transfer.FilterERC20TransferForTokens(
 				ctx,
-				done,
 				client,
 				nwCfg.Tokens,
 				nwCfg.Gateway,
@@ -172,13 +158,12 @@ func RecordWithdrawalsOnRonin(
 
 	// Now we know no more logs will be produced, so we can close the channels.
 	close(rawLogChan)
-	close(sanitizedLogChan)
-	close(mintTxHashesChan)
-	close(sanitizedTxHashesChan)
+	close(sanitizedTransferChan)
 
 	names := make(map[common.Address]string, len(nwCfg.Tokens))
 	symbols := make(map[common.Address]string, len(nwCfg.Tokens))
 	decimals := make(map[common.Address]int, len(nwCfg.Tokens))
+	symbol2token := make(map[string]common.Address, len(nwCfg.Tokens))
 
 	// Sort tokens
 	sort.Slice(nwCfg.Tokens, func(i, j int) bool {
@@ -191,6 +176,7 @@ func RecordWithdrawalsOnRonin(
 		names[token] = name
 		symbols[token] = symbol
 		decimals[token] = dec
+		symbol2token[symbol] = token
 	}
 
 	// Log final state
@@ -199,18 +185,22 @@ func RecordWithdrawalsOnRonin(
 	}
 
 	// Write TxHashes to file
-	f, err := os.Create("ronin-weth-tx-hashes.txt")
+	f, err := os.Create("ronin-weth-erc20-tx-hashes.txt")
 	if err != nil {
 		fmt.Println(err)
 		f.Close()
 		return
 	}
 
-	wethTxHashes := trackers[common.HexToAddress("0xc99a6A985eD2Cac1ef41640596C5A5f9F4E19Ef5")].SanitizedTxHashes
+	wethTxHashes := trackers[symbol2token["WETH"]].SanitizedTxHashes
+	wethQuantities := trackers[symbol2token["WETH"]].Quantities
 
-	for _, v := range wethTxHashes {
-		fmt.Fprintln(f, v)
+	fmt.Fprintf(f, "tx_hash,quantity\n")
+
+	for i := range wethTxHashes {
+		fmt.Fprintf(f, "%s,%s\n", wethTxHashes[i], wethQuantities[i])
 	}
+
 	err = f.Close()
 	if err != nil {
 		fmt.Println(err)

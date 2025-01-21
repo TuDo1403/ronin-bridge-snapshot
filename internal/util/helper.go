@@ -11,6 +11,14 @@ import (
 	"github.com/ethereum/go-ethereum/ethclient"
 )
 
+func ToMap(txHashes []common.Hash) map[common.Hash]bool {
+	m := make(map[common.Hash]bool)
+	for _, txHash := range txHashes {
+		m[txHash] = true
+	}
+	return m
+}
+
 func NewClients(rpcURLs []string) []*ethclient.Client {
 	clients := make([]*ethclient.Client, 0)
 	for _, url := range rpcURLs {

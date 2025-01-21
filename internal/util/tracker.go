@@ -2,9 +2,8 @@ package util
 
 import (
 	"math/big"
-	"ronin-bridge-snapshot/internal/abi/erc20"
-	"ronin-bridge-snapshot/internal/abi/mainchain_gateway"
-	"ronin-bridge-snapshot/internal/abi/ronin_gateway"
+	"ronin-bridge-snapshot/internal/erc20_transfer"
+	"ronin-bridge-snapshot/internal/withdrawal"
 
 	"github.com/ethereum/go-ethereum/common"
 )
@@ -12,11 +11,11 @@ import (
 type Tracker struct {
 	TxCount           int
 	AccAmount         *big.Int
-	LastRecordedBlock int
+	LastRecordedBlock uint64
 	MintTxHashes      []common.Hash
 	SanitizedTxHashes []common.Hash
 	ReceiptHashes     []common.Hash
-	ReceiptIds        []*big.Int
+	ReceiptIds        []int64
 	Quantities        []*big.Int
 }
 
@@ -38,52 +37,37 @@ func NewTrackers(tokens []common.Address) map[common.Address]*Tracker {
 	return trackers
 }
 
-func RecordTransfer(tracker *Tracker, logs []*erc20.Erc20Transfer) {
-	tracker.TxCount += len(logs)
-	for _, log := range logs {
-		tracker.AccAmount.Add(tracker.AccAmount, log.Value)
-		if int(log.Raw.BlockNumber) > tracker.LastRecordedBlock {
-			tracker.LastRecordedBlock = int(log.Raw.BlockNumber)
+func (t *Tracker) RecordWithdrawalReceipts(withdrawalReceipts []*withdrawal.WithdrawalReceipt) {
+	t.TxCount += len(withdrawalReceipts)
+
+	for _, receipt := range withdrawalReceipts {
+		t.AccAmount.Add(t.AccAmount, receipt.Quantity)
+
+		if receipt.BlockNumber > t.LastRecordedBlock {
+			t.LastRecordedBlock = receipt.BlockNumber
 		}
+
+		t.Quantities = append(t.Quantities, receipt.Quantity)
+		t.ReceiptIds = append(t.ReceiptIds, receipt.ReceiptId)
+		t.ReceiptHashes = append(t.ReceiptHashes, receipt.ReceiptHash)
+		t.SanitizedTxHashes = append(t.SanitizedTxHashes, receipt.TxHash)
 	}
 }
 
-func RecordRequestWithdrawals(tracker *Tracker, logs []*ronin_gateway.RoninGatewayWithdrawalRequested) {
-	tracker.TxCount += len(logs)
-	for _, log := range logs {
-		tracker.AccAmount.Add(tracker.AccAmount, log.Arg1.Info.Quantity)
-		if int(log.Raw.BlockNumber) > tracker.LastRecordedBlock {
-			tracker.LastRecordedBlock = int(log.Raw.BlockNumber)
+func (t *Tracker) RecordTransfers(transfers []*erc20_transfer.Transfer) {
+	t.TxCount += len(transfers)
+
+	for _, transfer := range transfers {
+		if transfer.BlockNumber > t.LastRecordedBlock {
+			t.LastRecordedBlock = transfer.BlockNumber
+		}
+
+		if transfer.From == (common.Address{}) {
+			t.MintTxHashes = append(t.MintTxHashes, transfer.TxHash)
+		} else {
+			t.AccAmount.Add(t.AccAmount, transfer.Value)
+			t.Quantities = append(t.Quantities, transfer.Value)
+			t.SanitizedTxHashes = append(t.SanitizedTxHashes, transfer.TxHash)
 		}
 	}
-}
-
-func RecordQuantities(tracker *Tracker, quantities []*big.Int) {
-	tracker.Quantities = append(tracker.Quantities, quantities...)
-}
-
-func RecordWithdrawals(tracker *Tracker, logs []*mainchain_gateway.MainchainGatewayWithdrew) {
-	tracker.TxCount += len(logs)
-	for _, log := range logs {
-		tracker.AccAmount.Add(tracker.AccAmount, log.Receipt.Info.Quantity)
-		if int(log.Raw.BlockNumber) > tracker.LastRecordedBlock {
-			tracker.LastRecordedBlock = int(log.Raw.BlockNumber)
-		}
-	}
-}
-
-func RecordReceiptHashes(tracker *Tracker, receiptHashes []common.Hash) {
-	tracker.ReceiptHashes = append(tracker.ReceiptHashes, receiptHashes...)
-}
-
-func RecordReceiptIds(tracker *Tracker, receiptIds []*big.Int) {
-	tracker.ReceiptIds = append(tracker.ReceiptIds, receiptIds...)
-}
-
-func RecordMintTxHashes(tracker *Tracker, mintTxHashes []common.Hash) {
-	tracker.MintTxHashes = append(tracker.MintTxHashes, mintTxHashes...)
-}
-
-func RecordSanitizedTxHashes(tracker *Tracker, sanitizedTxHashes []common.Hash) {
-	tracker.SanitizedTxHashes = append(tracker.SanitizedTxHashes, sanitizedTxHashes...)
 }
