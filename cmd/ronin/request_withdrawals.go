@@ -31,7 +31,7 @@ func RecordRequestWithdrawalsOnRonin(
 	nwCfg config.NetworkConfig,
 ) {
 	// Calculate how many batches we'll do
-	numBatch := (nwCfg.EndBlock - nwCfg.StartBlock) / uint64(nwCfg.QueryBatchSize)
+	numBatch := (nwCfg.EndBlock-nwCfg.StartBlock)/uint64(nwCfg.QueryBatchSize) + 1
 	var processedBatches int64
 	log.Info("Config", "BatchCount", numBatch)
 
