@@ -22,13 +22,14 @@ network-config:
   ronin-mainnet:
     chain-id: 2020
     rpc-endpoints:
-      - http://34.135.81.204:8545
-      # - https://api-archived.roninchain.com/rpc
+      - ${RONIN_MAINNET_PRIVATE_RPC}
+      - https://api-archived.roninchain.com/rpc
+      - https://api.roninchain.com/rpc
+      - https://api-partner.roninchain.com/rpc
     companion-network: ethereum
     gateway: 0x0CF8fF40a508bdBc39fBe1Bb679dCBa64E65C7Df
     start-block: 14765762
     end-block: 41758294
-    # end-block: 15000000
     query-batch-size: 5000
     tokens:
       - 0x0b7007c13325c48911f73a2dad5fa5dcbf808adc
@@ -102,3 +103,4 @@ network-config:
       - 0x153A381D1207862cA003f68600462fAa66A828a7
 ronin: ronin-mainnet
 mainchain: ethereum
+log-level: info

@@ -2,7 +2,6 @@ package withdrawal
 
 import (
 	"context"
-	// "go/parser"
 	"math/big"
 
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
