@@ -12,55 +12,46 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/ethereum/go-ethereum/log"
+	"github.com/k0kubun/go-ansi"
+	"github.com/schollz/progressbar/v3"
 )
 
-type Status uint8
-
-const (
-	None    Status = iota // query not yet picked up
-	Started               // query is being processed
-	Done                  // query completed
-)
-
-func (s Status) String() string {
-	switch s {
-	case None:
-		return "None"
-	case Started:
-		return "Started"
-	case Done:
-		return "Done"
-	default:
-		return "Unknown"
-	}
-}
-
-// EventFilterer is **NOT** safe for reuse – create one per batch run.
+// EventFilterer is NOT safe for reuse – create one per batch run.
 type EventFilterer struct {
-	queries   []*ethereum.FilterQuery
-	clients   []*ethclient.Client
-	status    []Status
-	outCh     chan []*types.Log
-	nWorker   int
-	batchSize int
+	queries []*ethereum.FilterQuery
+	clients []*ethclient.Client
+	outCh   chan []*types.Log
+
+	nWorker      int
+	batchSize    int
+	pollInterval time.Duration
+	desc         string
 
 	ctx context.Context
 	wg  *sync.WaitGroup
 
+	// fulfilled counts how many queries have been processed
 	fulfilled atomic.Int32
-	mu        sync.Mutex
+	// nextQueryIndex atomically assigns the next query index to a worker.
+	nextQueryIndex atomic.Int32
+	// closeOnce ensures outCh is closed exactly one time.
+	closeOnce sync.Once
+
+	progressBar *progressbar.ProgressBar
 }
 
 // NewEventFilterer builds the list of filter queries once and spins workers later.
 func NewEventFilterer(
 	ctx context.Context,
 	wg *sync.WaitGroup,
+	pollInterval time.Duration,
+	desc string,
 	clients []*ethclient.Client,
 	targets []common.Address,
 	topics [][]common.Hash,
 	batchSize, nWorker, start, end int,
 	outCh chan []*types.Log,
-) *EventFilterer {
+) (ef *EventFilterer) {
 	if batchSize <= 0 || start <= 0 || end < start {
 		log.Crit("invalid block range", "start", start, "end", end, "batchSize", batchSize)
 	}
@@ -79,118 +70,127 @@ func NewEventFilterer(
 		queries[i] = buildQuery(targets, bs, be, topics)
 	}
 
-	ef := &EventFilterer{
-		queries:   queries,
-		clients:   clients,
-		status:    make([]Status, nBatch),
-		outCh:     outCh,
-		nWorker:   nWorker,
-		batchSize: batchSize,
-		ctx:       ctx,
-		wg:        wg,
+	// Ensure the number of workers does not exceed the number of batches.
+	nWorker = min(nWorker, nBatch)
+
+	// Create a progress bar with the total set to the number of queries.
+	bar := progressbar.NewOptions(nBatch,
+		progressbar.OptionSetWriter(ansi.NewAnsiStdout()),
+		progressbar.OptionSetDescription(desc),
+		progressbar.OptionSetWidth(15),
+		progressbar.OptionEnableColorCodes(true),
+		progressbar.OptionShowCount(),
+		progressbar.OptionShowIts(),
+		progressbar.OptionShowElapsedTimeOnFinish(),
+		progressbar.OptionSetTheme(progressbar.Theme{
+			Saucer:        "[green]=[reset]",
+			SaucerHead:    "[green]>[reset]",
+			SaucerPadding: " ",
+			BarStart:      "[",
+			BarEnd:        "]",
+		}),
+	)
+
+	ef = &EventFilterer{
+		queries:      queries,
+		clients:      clients,
+		outCh:        outCh,
+		nWorker:      nWorker,
+		batchSize:    batchSize,
+		pollInterval: pollInterval,
+		desc:         desc,
+		ctx:          ctx,
+		wg:           wg,
+		progressBar:  bar,
 	}
-	log.Info("EventFilterer", "nBatch", nBatch, "batchSize", batchSize, "start", start, "end", end, "nWorker", nWorker)
+
+	log.Info("EventFilterer", "batchSize", batchSize, "nBatch", nBatch, "nWorker", nWorker, "pollInterval", pollInterval, "from", start, "to", end)
+
 	return ef
 }
 
-// Start launches the pool.  Caller must **wg.Wait()** later.
+// Start launches worker goroutines. The caller must call wg.Wait() later.
 func (ef *EventFilterer) Start() {
 	ef.wg.Add(ef.nWorker)
-	for range ef.nWorker {
-		go ef.worker()
+	for i := range ef.nWorker {
+		go ef.worker(i)
 	}
 }
 
-// -----------------------------------------------------------------------------
-// internal helpers
-// -----------------------------------------------------------------------------
-
-func (ef *EventFilterer) worker() {
+// worker continually processes queries until none remain.
+func (ef *EventFilterer) worker(i int) {
 	defer ef.wg.Done()
 
 	for {
+		// Exit if context is canceled.
 		select {
 		case <-ef.ctx.Done():
+			log.Debug("context canceled", "worker id", i)
 			return
 		default:
 		}
 
-		if ef.processNextQuery() {
-			log.Trace("worker finished all queries")
-			// all batches are finished, exit this worker
+		// Atomically fetch the next query index.
+		idx := int(ef.nextQueryIndex.Add(1)) - 1
+		if idx >= len(ef.queries) {
+			log.Debug("no more queries to process", "worker", i)
 			return
 		}
-		// small sleep prevents a tight spin once work is done
-		time.Sleep(150 * time.Millisecond)
-	}
-}
 
-// processNextQuery finds the next *unstarted* query and runs it.
-// It returns true when **all** queries are Done (so worker can exit).
-func (ef *EventFilterer) processNextQuery() (allDone bool) {
-	var idx int = -1
+		// Attempt to fetch logs for the current query.
+		_ = ef.fetchLogs(idx, i)
 
-	ef.mu.Lock()
-	for i, st := range ef.status {
-		if st == None {
-			idx = i
-			ef.status[i] = Started
-			break
-		}
-	}
-	allDone = ef.fulfilled.Load() == int32(len(ef.queries))
-	ef.mu.Unlock()
-
-	if allDone || idx == -1 {
-		return allDone
-	}
-
-	ok := ef.fetchLogs(idx)
-	if ok {
+		// Update the progress bar and count the processed query.
+		ef.progressBar.Add(1)
 		if ef.fulfilled.Add(1) == int32(len(ef.queries)) {
-			log.Trace("all queries fulfilled")
-			// last query – close channel so downstream consumers know we're done
-			close(ef.outCh)
+			ef.closeOnce.Do(func() {
+				close(ef.outCh)
+			})
+
+			ef.progressBar.Finish()
+			return
 		}
+
+		// Optionally throttle requests to avoid tight looping.
+		time.Sleep(ef.pollInterval)
 	}
-	return ef.fulfilled.Load() == int32(len(ef.queries))
 }
 
-func (ef *EventFilterer) fetchLogs(i int) bool {
-	log.Trace("fetchLogs", "from", ef.queries[i].FromBlock, "to", ef.queries[i].ToBlock, "idx", i)
+// fetchLogs attempts to fetch logs for the query at index i using each client until one succeeds.
+func (ef *EventFilterer) fetchLogs(i, wid int) bool {
 	q := ef.queries[i]
+	log.Trace("fetchLogs", "worker id", wid, "idx", i, "from", q.FromBlock, "to", q.ToBlock)
 
+	var success bool
+	// Try each client in order.
 	for cIdx, cli := range ef.clients {
 		res, err := cli.FilterLogs(ef.ctx, *q)
 		if err != nil {
-			log.Warn("filterLogs failed", "client", cIdx, "err", err)
-			continue
-		}
-		if len(res) == 0 {
+			log.Warn("filterLogs failed", "worker id", wid, "client", cIdx, "err", err)
 			continue
 		}
 
-		// copy to avoid keeping the backing array of res alive
-		out := make([]*types.Log, len(res))
-		for j := range res {
-			out[j] = &res[j]
+		// Send logs to the output channel.
+		if len(res) != 0 {
+			log.Trace("filterLogs succeeded", "worker id", wid, "client", cIdx, "count", len(res), "from", q.FromBlock, "to", q.ToBlock)
+			out := make([]*types.Log, len(res))
+			for j := range res {
+				out[j] = &res[j]
+			}
+
+			ef.outCh <- out
 		}
-		ef.outCh <- out
 
-		ef.mu.Lock()
-		ef.status[i] = Done
-		ef.mu.Unlock()
+		success = true
 
-		return true
+		break
 	}
 
-	log.Warn("all clients failed to fetch logs", "idx", i)
+	if !success {
+		log.Crit("all clients failed to fetch logs", "worker id", wid, "idx", i, "from", q.FromBlock, "to", q.ToBlock)
+	}
 
-	// no client returned anything – mark as Done so we don’t loop forever
-	ef.mu.Lock()
-	ef.status[i] = Done
-	ef.mu.Unlock()
-	return false
+	return success
 }
 
 func buildQuery(addrs []common.Address, from, to int, topics [][]common.Hash) *ethereum.FilterQuery {
@@ -200,6 +200,10 @@ func buildQuery(addrs []common.Address, from, to int, topics [][]common.Hash) *e
 	if len(topics) == 0 {
 		log.Crit("no topics provided")
 	}
+	if from <= 0 || to < from {
+		log.Crit("invalid block range", "from", from, "to", to)
+	}
+
 	return &ethereum.FilterQuery{
 		FromBlock: big.NewInt(int64(from)),
 		ToBlock:   big.NewInt(int64(to)),

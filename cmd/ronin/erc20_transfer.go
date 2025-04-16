@@ -120,10 +120,7 @@ func RecordWithdrawalsOnRonin(
 	}()
 
 	for startBlock := nwCfg.StartBlock; startBlock < nwCfg.EndBlock; startBlock += uint64(nwCfg.QueryBatchSize) {
-		endBlock = startBlock + uint64(nwCfg.QueryBatchSize) - 1
-		if endBlock > nwCfg.EndBlock {
-			endBlock = nwCfg.EndBlock
-		}
+		endBlock = min(startBlock + uint64(nwCfg.QueryBatchSize) - 1, nwCfg.EndBlock)
 
 		batchIndex++
 		if batchIndex%100 == 0 {
