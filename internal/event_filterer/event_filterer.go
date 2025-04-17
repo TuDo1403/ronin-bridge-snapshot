@@ -43,7 +43,6 @@ type EventFilterer struct {
 // NewEventFilterer builds the list of filter queries once and spins workers later.
 func NewEventFilterer(
 	ctx context.Context,
-	wg *sync.WaitGroup,
 	pollInterval time.Duration,
 	desc string,
 	clients []*ethclient.Client,
@@ -99,7 +98,7 @@ func NewEventFilterer(
 		pollInterval: pollInterval,
 		desc:         desc,
 		ctx:          ctx,
-		wg:           wg,
+		wg:           &sync.WaitGroup{},
 		progressBar:  bar,
 	}
 
@@ -118,11 +117,14 @@ func (ef *EventFilterer) Start() {
 }
 
 func (ef *EventFilterer) Stop() {
-	// Close all workers
+	// Wait for all workers to finish.
+	ef.wg.Wait()
+	log.Debug("[EventFilterer] All workers stopped")
+
+	// Close the output channel once all workers are done.
 	ef.closeOnce.Do(func() {
-		ef.progressBar.Finish()
 		close(ef.outCh)
-		log.Info("EventFilterer stopped", "desc", ef.desc)
+		log.Debug("Output channel closed")
 	})
 }
 
@@ -156,8 +158,7 @@ func (ef *EventFilterer) worker(i int) {
 			// Update the progress bar and count the processed query.
 			ef.progressBar.Add(1)
 			if ef.fulfilled.Add(1) == int32(len(ef.queries)) {
-				ef.Stop()
-
+				ef.progressBar.Finish()
 				return
 			}
 		}

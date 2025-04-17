@@ -3,7 +3,6 @@ package event_tracker
 import (
 	"context"
 	"ronin-bridge-snapshot/generated/contract/transparent_proxy_v2"
-	"sync"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
@@ -20,9 +19,9 @@ type ChangeAdminTracker struct {
 	txHashes2Info map[common.Hash]*ChangeAdminInfo
 }
 
-func NewChangeAdminTracker(wg *sync.WaitGroup, ctx context.Context, nWorker int, in <-chan *types.Log) *ChangeAdminTracker {
+func NewChangeAdminTracker(ctx context.Context, nWorker int, in <-chan *types.Log) *ChangeAdminTracker {
 	c := &ChangeAdminTracker{
-		Tracker:       NewTracker(wg, ctx, nWorker, in, nil),
+		Tracker:       NewTracker(ctx, "ChangeAdmin", nWorker, in, nil),
 		txHashes2Info: make(map[common.Hash]*ChangeAdminInfo),
 	}
 
@@ -33,7 +32,7 @@ func NewChangeAdminTracker(wg *sync.WaitGroup, ctx context.Context, nWorker int,
 }
 
 func (c *ChangeAdminTracker) Summarize() {
-	log.Info("\nSummarizing ChangeAdmin events")
+	log.Info("#### Summarizing ChangeAdmin events ####")
 
 	count := c.Total()
 	if count > 0 {

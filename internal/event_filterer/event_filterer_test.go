@@ -163,7 +163,7 @@ func TestFilterERC20Transfer(t *testing.T) {
 	wg := &sync.WaitGroup{}
 
 	filterer := event_filterer.NewEventFilterer(
-		ctx, wg,
+		ctx,
 		100*time.Millisecond,
 		"[ronin] fetching events",
 		[]*ethclient.Client{client},
@@ -213,7 +213,6 @@ func TestFilterWithdrawalRequestedAndAdminChanged(t *testing.T) {
 		t.Fatalf("dial RPC: %v", err)
 
 	}
-	wg := &sync.WaitGroup{}
 
 	roninGatewayABI, _ := ronin_gateway.RoninGatewayMetaData.GetAbi()
 	tpABI, _ := transparent_proxy_v2.TransparentProxyV2MetaData.GetAbi()
@@ -228,9 +227,23 @@ func TestFilterWithdrawalRequestedAndAdminChanged(t *testing.T) {
 		nil,
 	)
 	withdrawalRequestTracker := event_tracker.NewRequestWithdrawalTracker(
-		wg,
 		ctx,
-		50, withdrawalRequestedMatcher.ReceiveOnlyCh())
+		50,
+		[]common.Hash{
+			common.HexToHash("0xa53c7c4402b40a63e485a1a8798d7b7ac6a151dce19c3486d9928575476ac3ce"),
+			common.HexToHash("0x6af887fda63d7ec5538c43fdd3b1fa87ce5e2aaf824c5332f3bd8330d45f4c0b"),
+			common.HexToHash("0x2392f70de576a6e90d95eb4686561ab6232fda7d972ca56fa94df20840f289c9"),
+			common.HexToHash("0xc27bbc806abf466645a24f2be8bb7f082cba007f52767739eee0815153ae6fea"),
+			common.HexToHash("0x78c3e08640228ff072749632f407617695a731f2dd377fa3b1a87f7697282897"),
+			common.HexToHash("0x542c6ddaf6d3752d488153b212346b94bbe30d8b25eee94c80051baa4a8714b7"),
+			common.HexToHash("0x2c4db38cafde1d399e07a754b6605bc5dd242119929dfd8382dfb9925d322379"),
+			common.HexToHash("0x534c69d4c943b20f180774b942147e446e39e12920057e9795927defa547e2ab"),
+			common.HexToHash("0xced4cf252ff100eb7cc96859fc0e85fcad97d97d26f96ed4ae78665301e09094"),
+			common.HexToHash("0x28211787395779c94fca595000f3d079e86ebe12b92e4f005fad4dae5c44d2e9"),
+			common.HexToHash("0x4887f384ba119800b85cb65e146bb559972cc15fab65e5d8ccafd32999b419c9"),
+			common.HexToHash("0x1357e4fa4b955249724d437f634105195f1337edc2db8905a72e69b35ccbd870"),
+		},
+		withdrawalRequestedMatcher.ReceiveOnlyCh())
 
 	upgradedMatcher := event_handler.NewMatcher(
 		[]common.Address{
@@ -242,7 +255,6 @@ func TestFilterWithdrawalRequestedAndAdminChanged(t *testing.T) {
 		nil,
 	)
 	upgradedTracker := event_tracker.NewUpgradeTracker(
-		wg,
 		ctx,
 		50, upgradedMatcher.ReceiveOnlyCh())
 
@@ -256,7 +268,6 @@ func TestFilterWithdrawalRequestedAndAdminChanged(t *testing.T) {
 		nil,
 	)
 	adminChangedTracker := event_tracker.NewChangeAdminTracker(
-		wg,
 		ctx,
 		50, adminChangedMatcher.ReceiveOnlyCh())
 
@@ -275,21 +286,20 @@ func TestFilterWithdrawalRequestedAndAdminChanged(t *testing.T) {
 	)
 
 	filterer := event_filterer.NewEventFilterer(
-		ctx, wg,
-		100*time.Millisecond,
+		ctx,
+		300*time.Millisecond,
 		"[ronin] fetching events",
 		[]*ethclient.Client{client},
 		targets, topics,
-		1000, // batch size
-		10,   // workers
-		14_765_762,
+		5000,       // batch size
+		20,         // workers
+		14_765_762, // 14765762
 		41758294,
 		// 15_765_762,
 	)
 
 	handler := event_handler.NewEventHandler(
 		ctx,
-		wg,
 		filterer.ReceiveOnlyCh(),
 		10, // workers
 	)
@@ -298,15 +308,18 @@ func TestFilterWithdrawalRequestedAndAdminChanged(t *testing.T) {
 	handler.AddMatcher(upgradedMatcher)
 	handler.AddMatcher(adminChangedMatcher)
 
-	handler.Start()
-
 	withdrawalRequestTracker.Start()
-	upgradedTracker.Start()
 	adminChangedTracker.Start()
-
+	upgradedTracker.Start()
+	handler.Start()
 	filterer.Start()
 
-	wg.Wait()
+	filterer.Stop()
+	handler.Stop()
+	upgradedTracker.Stop()
+	adminChangedTracker.Stop()
+	withdrawalRequestTracker.Stop()
+
 	log.Info("All workers finished")
 
 	// Summarize the trackers

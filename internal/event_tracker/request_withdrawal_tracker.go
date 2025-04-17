@@ -4,32 +4,27 @@ import (
 	"context"
 	"math/big"
 	"ronin-bridge-snapshot/internal/abi/ronin_gateway"
-	"sync"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/log"
 )
 
-type RequestWithdrawalInfo struct {
-	receiptId   int64
-	receiptHash common.Hash
-	quantity    *big.Int
-	localAddr   common.Address
-	remoteAddr  common.Address
-}
-
 type RequestWithdrawalTracker struct {
 	*Tracker
-	txHashes2Info   map[common.Hash]*RequestWithdrawalInfo
-	excludeTxHashes map[common.Hash]bool
+	receiptHashes2Info map[common.Hash]*ronin_gateway.TransferReceipt
+	excludeTxHashes    map[common.Hash]struct{}
 }
 
-func NewRequestWithdrawalTracker(wg *sync.WaitGroup, ctx context.Context, nWorker int, in <-chan *types.Log) *RequestWithdrawalTracker {
+func NewRequestWithdrawalTracker(ctx context.Context, nWorker int, excludeTxHashes []common.Hash, in <-chan *types.Log) *RequestWithdrawalTracker {
+	excludeTxHashesMap := make(map[common.Hash]struct{})
+	for _, txHash := range excludeTxHashes {
+		excludeTxHashesMap[txHash] = struct{}{}
+	}
 	r := &RequestWithdrawalTracker{
-		Tracker:         NewTracker(wg, ctx, nWorker, in, nil),
-		txHashes2Info:   make(map[common.Hash]*RequestWithdrawalInfo),
-		excludeTxHashes: make(map[common.Hash]bool),
+		Tracker:            NewTracker(ctx, "WithdrawalRequested", nWorker, in, nil),
+		receiptHashes2Info: make(map[common.Hash]*ronin_gateway.TransferReceipt),
+		excludeTxHashes:    excludeTxHashesMap,
 	}
 
 	r.Tracker.iface, _ = ronin_gateway.RoninGatewayMetaData.GetAbi()
@@ -37,13 +32,64 @@ func NewRequestWithdrawalTracker(wg *sync.WaitGroup, ctx context.Context, nWorke
 	return r
 }
 
+func (r *RequestWithdrawalTracker) GetReceiptHashes() []common.Hash {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	receiptHashes := make([]common.Hash, 0, len(r.receiptHashes2Info))
+	for receiptHash := range r.receiptHashes2Info {
+		receiptHashes = append(receiptHashes, receiptHash)
+	}
+	return receiptHashes
+}
+
+func (r *RequestWithdrawalTracker) GetReceiptHashInfo(receiptHash common.Hash) *ronin_gateway.TransferReceipt {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	return r.receiptHashes2Info[receiptHash]
+}
+
 func (r *RequestWithdrawalTracker) Summarize() {
-	log.Info("\nSummarizing RequestWithdrawal events")
+	log.Info("#### Summarizing RequestWithdrawal events ####")
+
+	r.Tracker.mu.Lock()
+	defer r.Tracker.mu.Unlock()
+
 	count := r.Total()
-	if count > 0 {
-		log.Info("Total RequestWithdrawal events recorded", "count", count)
-	} else {
-		log.Info("No RequestWithdrawal events recorded")
+
+	tokenAmounts := make(map[common.Address]*big.Int)
+	txCount := make(map[common.Address]int)
+	erc20Count := 0
+	erc721Count := 0
+	erc1155Count := 0
+
+	for _, receipt := range r.receiptHashes2Info {
+		if receipt.Info.Quantity == big.NewInt(0) || receipt.Info.Erc != 0 {
+			if receipt.Info.Erc == 1 {
+				erc721Count++
+			}
+			if receipt.Info.Erc == 2 {
+				erc1155Count++
+			}
+
+			continue
+		}
+
+		tokenAddr := receipt.Ronin.TokenAddr
+		if _, ok := tokenAmounts[tokenAddr]; !ok {
+			tokenAmounts[tokenAddr] = new(big.Int)
+		}
+
+		erc20Count++
+		txCount[tokenAddr]++
+		tokenAmounts[tokenAddr].Add(tokenAmounts[tokenAddr], receipt.Info.Quantity)
+	}
+
+	log.Info("Total RequestWithdrawal events", "total", count, "erc20", erc20Count, "erc721", erc721Count, "erc1155", erc1155Count)
+
+	for token, amount := range tokenAmounts {
+		log.Info("Token", "address", token.Hex(), "txCount", txCount[token], "total", amount.String())
 	}
 }
 
@@ -64,32 +110,25 @@ func (r *RequestWithdrawalTracker) Record(e *types.Log) error {
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.txHashes2Info[e.TxHash] = &RequestWithdrawalInfo{
-		receiptId:   event.Arg1.Id.Int64(),
-		receiptHash: event.ReceiptHash,
-		quantity:    event.Arg1.Info.Quantity,
-		localAddr:   event.Arg1.Ronin.Addr,
-		remoteAddr:  event.Arg1.Mainchain.Addr,
-	}
-
+	r.receiptHashes2Info[event.ReceiptHash] = &event.Arg1
 	return nil
 }
 
 func (r *RequestWithdrawalTracker) validate(e *ronin_gateway.RoninGatewayWithdrawalRequested) bool {
-	if r.excludeTxHashes[e.Raw.TxHash] {
+	if _, ok := r.excludeTxHashes[e.Raw.TxHash]; ok {
 		log.Warn("Transaction hash is excluded", "TxHash", e.Raw.TxHash.String())
 		return false
 	}
+
 	if e.Arg1.Kind != 1 {
 		return false
 	}
-	if e.Arg1.Info.Erc != 0 {
-		return false
-	}
-	if e.Arg1.Info.Quantity.Int64() == 0 {
-		log.Warn("Quantity is zero", "txHash", e.Raw.TxHash.String(), "blockNumber", e.Raw.BlockNumber)
-		return false
-	}
+	// if e.Arg1.Info.Erc != 0 {
+	// 	return false
+	// }
+	// if e.Arg1.Info.Quantity.Int64() == 0 {
+	// 	return false
+	// }
 
 	return true
 }

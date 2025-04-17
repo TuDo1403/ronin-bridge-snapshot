@@ -3,6 +3,7 @@ package event_tracker
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sort"
 	"sync"
 
@@ -32,15 +33,16 @@ type Tracker struct {
 	wg       *sync.WaitGroup
 	nWorker  int
 	callback func(e *types.Log) error
+	desc     string
 }
 
-func NewTracker(wg *sync.WaitGroup, ctx context.Context, nWorker int, in <-chan *types.Log, cb func(e *types.Log) error) *Tracker {
+func NewTracker(ctx context.Context, desc string, nWorker int, in <-chan *types.Log, cb func(e *types.Log) error) *Tracker {
 	return &Tracker{
 		inCh:       in,
 		rawEvts:    make([]*types.Log, 0),
 		txHash2Log: make(map[common.Hash]*types.Log),
 		ctx:        ctx,
-		wg:         wg,
+		wg:         &sync.WaitGroup{},
 		nWorker:    nWorker,
 		callback:   cb,
 	}
@@ -56,7 +58,7 @@ func (tr *Tracker) Start() {
 
 func (tr *Tracker) Stop() {
 	tr.wg.Wait()
-	log.Info("All workers stopped")
+	log.Info("tracker", fmt.Sprintf("Tracker stopped: %s Stopped!", tr.desc))
 }
 
 func (tr *Tracker) worker(i int) {
@@ -74,7 +76,7 @@ func (tr *Tracker) worker(i int) {
 
 			err := tr.callback(e)
 			if err != nil {
-				log.Error("Failed to record event", "error", err, "event", e)
+				log.Crit("Failed to record event", "error", err, "event", e)
 			}
 		}
 	}
@@ -117,11 +119,9 @@ func (tr *Tracker) OldestAndLatestTxHash() (oldest, latest common.Hash) {
 
 func (tr *Tracker) Record(e *types.Log) error {
 	tr.mu.Lock()
-	defer tr.mu.Unlock()
-
-	// Assuming log is already filtered and valid for this tracker
 	tr.rawEvts = append(tr.rawEvts, e)
 	tr.txHash2Log[e.TxHash] = e
+	tr.mu.Unlock()
 
 	return nil
 }

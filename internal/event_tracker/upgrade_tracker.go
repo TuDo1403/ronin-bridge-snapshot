@@ -3,7 +3,6 @@ package event_tracker
 import (
 	"context"
 	"ronin-bridge-snapshot/generated/contract/transparent_proxy_v2"
-	"sync"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
@@ -19,9 +18,9 @@ type UpgradeTracker struct {
 	txHashes2Info map[common.Hash]*UpgradeInfo
 }
 
-func NewUpgradeTracker(wg *sync.WaitGroup, ctx context.Context, nWorker int, in <-chan *types.Log) *UpgradeTracker {
+func NewUpgradeTracker(ctx context.Context, nWorker int, in <-chan *types.Log) *UpgradeTracker {
 	u := &UpgradeTracker{
-		Tracker:       NewTracker(wg, ctx, nWorker, in, nil),
+		Tracker:       NewTracker(ctx, "Upgrade", nWorker, in, nil),
 		txHashes2Info: make(map[common.Hash]*UpgradeInfo),
 	}
 
@@ -32,7 +31,7 @@ func NewUpgradeTracker(wg *sync.WaitGroup, ctx context.Context, nWorker int, in 
 }
 
 func (u *UpgradeTracker) Summarize() {
-	log.Info("\nSummarizing Upgrade events")
+	log.Info("#### Summarizing Upgrade events ####")
 
 	count := u.Total()
 	if count > 0 {

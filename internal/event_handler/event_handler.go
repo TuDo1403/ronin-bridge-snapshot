@@ -12,11 +12,10 @@ import (
 /* ─────────────────────────  EventHandler  ───────────────────────── */
 
 type EventHandler struct {
-	inCh      <-chan []*types.Log // fan‑in from filterers
-	ctx       context.Context
-	wg        *sync.WaitGroup
-	workers   int
-	closeOnce sync.Once
+	inCh    <-chan []*types.Log // fan‑in from filterers
+	ctx     context.Context
+	wg      *sync.WaitGroup
+	workers int
 
 	// index: topic0  → []*Matcher
 	byTopic map[common.Hash][]*Matcher
@@ -24,12 +23,12 @@ type EventHandler struct {
 
 /* ---------- constructor & lifecycle ----------------------------------- */
 
-func NewEventHandler(ctx context.Context, wg *sync.WaitGroup, in <-chan []*types.Log, nWorker int) *EventHandler {
+func NewEventHandler(ctx context.Context, in <-chan []*types.Log, nWorker int) *EventHandler {
 	eh := &EventHandler{
 		inCh:    in,
 		workers: nWorker,
 		ctx:     ctx,
-		wg:      wg,
+		wg:      &sync.WaitGroup{},
 		byTopic: make(map[common.Hash][]*Matcher),
 	}
 
@@ -51,11 +50,14 @@ func (eh *EventHandler) GetMatchers() []*Matcher {
 }
 
 func (eh *EventHandler) Stop() {
-	// Close all matchers
+	eh.wg.Wait()
+	log.Info("[EventHandler] All workers stopped")
+
 	matchers := eh.GetMatchers()
 	for _, m := range matchers {
 		m.Close()
 	}
+	log.Info("[EventHandler] All matchers closed")
 }
 
 func (eh *EventHandler) Start() {
@@ -78,7 +80,6 @@ func (eh *EventHandler) worker(id int) {
 
 		case batch, ok := <-eh.inCh:
 			if !ok {
-				eh.Stop()
 				return
 			}
 
