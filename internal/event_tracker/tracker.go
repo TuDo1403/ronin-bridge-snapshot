@@ -48,6 +48,14 @@ func NewTracker(ctx context.Context, desc string, nWorker int, in <-chan *types.
 	}
 }
 
+func (tr *Tracker) GetAbi() *abi.ABI {
+	return tr.iface
+}
+
+func (tr *Tracker) SetInCh(in <-chan *types.Log) {
+	tr.inCh = in
+}
+
 func (tr *Tracker) Start() {
 	tr.wg.Add(tr.nWorker)
 

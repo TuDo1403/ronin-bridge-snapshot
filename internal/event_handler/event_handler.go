@@ -41,6 +41,10 @@ func (eh *EventHandler) AddMatcher(m *Matcher) {
 	eh.byTopic[m.topic0] = append(eh.byTopic[m.topic0], m)
 }
 
+func (eh *EventHandler) SetInCh(in <-chan []*types.Log) {
+	eh.inCh = in
+}
+
 func (eh *EventHandler) GetMatchers() []*Matcher {
 	matchers := make([]*Matcher, 0)
 	for _, m := range eh.byTopic {

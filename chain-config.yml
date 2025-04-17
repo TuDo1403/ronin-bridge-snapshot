@@ -3,7 +3,6 @@ network-config:
     chain-id: 2021
     rpc-endpoints:
       - https://saigon-archive.roninchain.com/rpc
-    companion-network: sepolia
     gateway: 0xcee681c9108c42c710c6a8a949307d5f13c9f3ca
     start-block: 0
     end-block: 0
@@ -13,7 +12,6 @@ network-config:
     chain-id: 11155111
     rpc-endpoints:
       - https://1rpc.io/sepolia
-    companion-network: ronin-testnet
     gateway: 0x06855f31dF1d3D25cE486CF09dB49bDa535D2a9e
     start-block: 0
     end-block: 0
@@ -26,7 +24,6 @@ network-config:
       - https://api-archived.roninchain.com/rpc
       - https://api.roninchain.com/rpc
       - https://api-partner.roninchain.com/rpc
-    companion-network: ethereum
     gateway: 0x0CF8fF40a508bdBc39fBe1Bb679dCBa64E65C7Df
     start-block: 14765762
     end-block: 41758294
@@ -58,18 +55,16 @@ network-config:
       - 0x28211787395779c94fca595000f3d079e86ebe12b92e4f005fad4dae5c44d2e9
       - 0x4887f384ba119800b85cb65e146bb559972cc15fab65e5d8ccafd32999b419c9
       - 0x1357e4fa4b955249724d437f634105195f1337edc2db8905a72e69b35ccbd870
-
   ethereum:
     chain-id: 1
     rpc-endpoints:
+      - ${ETHEREUM_PRIVATE_RPC}
       - https://eth.llamarpc.com
-      - https://ethereum.blockpi.network/v1/rpc/public
       - https://eth-mainnet.public.blastapi.io
-      - https://mainnet.infura.io/v3/e91b12baa6ea47159e835ae6de2265fd
+      - https://mainnet.infura.io/v3/${INFURA_API_KEY}
       - https://rpc.ankr.com/eth
       - https://eth.blockrazor.xyz
       - https://eth.rpc.blxrbdn.com
-    companion-network: ronin-mainnet
     gateway: 0x64192819Ac13Ef72bF6b5AE239AC672B43a9AF08
     start-block: 15006576
     end-block: 21644966
@@ -104,3 +99,4 @@ network-config:
 ronin: ronin-mainnet
 mainchain: ethereum
 log-level: info
+poll-interval: 100 # in milliseconds

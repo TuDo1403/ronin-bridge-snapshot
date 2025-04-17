@@ -31,6 +31,7 @@ require (
 	github.com/google/uuid v1.3.0 // indirect
 	github.com/gorilla/websocket v1.4.2 // indirect
 	github.com/holiman/uint256 v1.3.1 // indirect
+	github.com/joho/godotenv v1.5.1
 	github.com/k0kubun/go-ansi v0.0.0-20180517002512-3bf9e2903213
 	github.com/mmcloughlin/addchain v0.4.0 // indirect
 	github.com/schollz/progressbar/v3 v3.18.0

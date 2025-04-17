@@ -3,6 +3,7 @@ package event_tracker
 import (
 	"context"
 	"ronin-bridge-snapshot/generated/contract/transparent_proxy_v2"
+	"sort"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
@@ -12,6 +13,7 @@ import (
 type ChangeAdminInfo struct {
 	previousAdmin common.Address
 	newAdmin      common.Address
+	rawEvent      *types.Log
 }
 
 type ChangeAdminTracker struct {
@@ -35,18 +37,23 @@ func (c *ChangeAdminTracker) Summarize() {
 	log.Info("#### Summarizing ChangeAdmin events ####")
 
 	count := c.Total()
-	if count > 0 {
-		log.Info("Total ChangeAdmin events recorded", "count", count)
-	} else {
-		log.Info("No ChangeAdmin events recorded")
+	log.Info("Total ChangeAdmin events recorded", "count", count)
+
+	if count == 0 {
+		return
 	}
 
-	for _, re := range c.Tracker.rawEvts {
-		if info, ok := c.txHashes2Info[re.TxHash]; ok {
-			log.Info("ChangeAdmin event", "txHash", re.TxHash.Hex(), "block", re.BlockNumber, "previousAdmin", info.previousAdmin.Hex(), "newAdmin", info.newAdmin.Hex())
-		} else {
-			log.Warn("Missing ChangeAdminInfo for txHash", "txHash", re.TxHash.Hex())
-		}
+	changeAdminInfos := make([]*ChangeAdminInfo, 0, len(c.txHashes2Info))
+	for _, info := range c.txHashes2Info {
+		changeAdminInfos = append(changeAdminInfos, info)
+	}
+	// sort by block number
+	sort.Slice(changeAdminInfos, func(i, j int) bool {
+		return cmp(changeAdminInfos[i].rawEvent, changeAdminInfos[j].rawEvent)
+	})
+
+	for _, info := range changeAdminInfos {
+		log.Info("ChangeAdmin event", "previousAdmin", info.previousAdmin.Hex(), "newAdmin", info.newAdmin.Hex(), "txHash", info.rawEvent.TxHash.Hex(), "blockNumber", info.rawEvent.BlockNumber, "txIndex", info.rawEvent.TxIndex)
 	}
 
 }
@@ -67,6 +74,7 @@ func (c *ChangeAdminTracker) Record(e *types.Log) error {
 	c.txHashes2Info[e.TxHash] = &ChangeAdminInfo{
 		previousAdmin: event.PreviousAdmin,
 		newAdmin:      event.NewAdmin,
+		rawEvent:      e,
 	}
 
 	return nil

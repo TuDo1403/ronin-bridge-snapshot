@@ -79,6 +79,7 @@ func NewEventFilterer(
 		progressbar.OptionEnableColorCodes(true),
 		progressbar.OptionShowCount(),
 		progressbar.OptionShowIts(),
+		progressbar.OptionSetItsString("calls"),
 		progressbar.OptionShowElapsedTimeOnFinish(),
 		progressbar.OptionSetTheme(progressbar.Theme{
 			Saucer:        "[green]=[reset]",

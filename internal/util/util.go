@@ -11,6 +11,10 @@ import (
 	"github.com/ethereum/go-ethereum/ethclient"
 )
 
+func ToSingletonArray(addr common.Address) []common.Address {
+	return []common.Address{addr}
+}
+
 func AggregateAddresses(addrs ...common.Address) []common.Address {
 	// Remove duplicates
 	addrSet := make(map[common.Address]struct{})

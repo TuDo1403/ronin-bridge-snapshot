@@ -24,6 +24,7 @@ func NewWithdrewTracker(ctx context.Context, nWorker int, excludeTxHashes []comm
 	}
 
 	w.Tracker.callback = w.Record
+	w.Tracker.iface, _ = mainchain_gateway.MainchainGatewayMetaData.GetAbi()
 	return w
 }
 
