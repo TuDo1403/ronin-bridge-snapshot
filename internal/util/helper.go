@@ -11,6 +11,73 @@ import (
 	"github.com/ethereum/go-ethereum/ethclient"
 )
 
+func AggregateAddresses(addrs ...common.Address) []common.Address {
+	// Remove duplicates
+	addrSet := make(map[common.Address]struct{})
+	for _, addr := range addrs {
+		addrSet[addr] = struct{}{}
+	}
+
+	// Convert the set back to a slice
+	result := make([]common.Address, 0, len(addrSet))
+	for addr := range addrSet {
+		result = append(result, addr)
+	}
+	return result
+}
+
+// AggregateTopics builds the [][]common.Hash “topics” matrix used in an
+// ethereum.FilterQuery.  Each input slice represents the **OR‑set** for one
+// topic position (topic0 … topic3).  A nil or empty slice means “match
+// anything” in that position.
+//
+// The result:
+//   - contains each position in order until the last **non‑nil** slot
+//   - trailing nils are trimmed, so the matrix is a valid prefix per geth
+//     rules (e.g. {{A},{}} becomes {{A}} because topic1 “anything” can be
+//     omitted entirely).
+//
+// Special case: if every position is nil/empty the function returns nil, which
+// tells the JSON‑RPC to match any topic list.
+func AggregateTopics(
+	topic0s, topic1s, topic2s, topic3s []common.Hash,
+) [][]common.Hash {
+
+	// Build a fixed‑length slice first.
+	raw := [][]common.Hash{
+		topic0s,
+		topic1s,
+		topic2s,
+		topic3s,
+	}
+
+	topics := make([][]common.Hash, 4)
+	for i, set := range raw {
+		if len(set) > 0 {
+			// Copy to avoid aliasing accidental mutations by caller.
+			cp := make([]common.Hash, len(set))
+			copy(cp, set)
+			topics[i] = cp
+		} else {
+			// nil slot → “match any” in this position
+			topics[i] = nil
+		}
+	}
+
+	// Trim trailing nils so the slice is only as long as the last constraint.
+	for i := len(topics) - 1; i >= 0; i-- {
+		if topics[i] != nil {
+			topics = topics[:i+1]
+			break
+		}
+		if i == 0 { // all nil
+			return nil
+		}
+	}
+
+	return topics
+}
+
 func ToMap(txHashes []common.Hash) map[common.Hash]bool {
 	m := make(map[common.Hash]bool)
 	for _, txHash := range txHashes {

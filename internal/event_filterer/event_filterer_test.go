@@ -3,9 +3,14 @@ package event_filterer_test
 import (
 	"context"
 	"os"
+	"ronin-bridge-snapshot/generated/contract/transparent_proxy_v2"
 	"ronin-bridge-snapshot/internal/abi/erc20"
+	"ronin-bridge-snapshot/internal/abi/ronin_gateway"
 	"ronin-bridge-snapshot/internal/erc20_transfer"
 	"ronin-bridge-snapshot/internal/event_filterer"
+	"ronin-bridge-snapshot/internal/event_handler"
+	"ronin-bridge-snapshot/internal/event_tracker"
+	"ronin-bridge-snapshot/internal/util"
 	"sync"
 	"testing"
 	"time"
@@ -126,7 +131,7 @@ func BenchmarkLegacyFilter(b *testing.B) {
 	close(outCh)
 }
 
-func BenchmarkFilter(b *testing.B) {
+func TestFilterERC20Transfer(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -135,7 +140,7 @@ func BenchmarkFilter(b *testing.B) {
 
 	client, err := ethclient.Dial("http://190.102.110.75:8545")
 	if err != nil {
-		b.Fatalf("dial RPC: %v", err)
+		t.Fatalf("dial RPC: %v", err)
 	}
 
 	erc20ABI, _ := erc20.Erc20MetaData.GetAbi()
@@ -155,27 +160,7 @@ func BenchmarkFilter(b *testing.B) {
 		common.HexToAddress("0x1a89ecd466a23e98f07111b0510a2d6c1cd5e400"),
 	}
 	topics := [][]common.Hash{{erc20ABI.Events["Transfer"].ID}, {}, {common.BytesToHash(common.HexToAddress("0x0CF8fF40a508bdBc39fBe1Bb679dCBa64E65C7Df").Bytes())}}
-
-	outCh := make(chan []*types.Log, 10_000)
 	wg := &sync.WaitGroup{}
-
-	// consumer
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		for {
-			select {
-			case <-ctx.Done():
-				b.Log("context done")
-				return
-			case _, ok := <-outCh:
-				if !ok {
-					b.Log("outCh closed")
-					return
-				}
-			}
-		}
-	}()
 
 	filterer := event_filterer.NewEventFilterer(
 		ctx, wg,
@@ -186,12 +171,146 @@ func BenchmarkFilter(b *testing.B) {
 		10000, // batch size
 		100,   // workers
 		14_765_762,
-		41758294,
-		// 14815762,
-		outCh,
+		// 41758294,
+		14815762,
 	)
+
+	inCh := filterer.ReceiveOnlyCh()
+
+	// consumer
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for {
+			select {
+			case <-ctx.Done():
+				t.Log("context done")
+				return
+			case _, ok := <-inCh:
+				if !ok {
+					t.Log("inCh closed")
+					return
+				}
+			}
+		}
+	}()
+
+	filterer.Start()
+	defer filterer.Stop()
+
+	wg.Wait()
+}
+
+func TestFilterWithdrawalRequestedAndAdminChanged(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	logger := log.NewLogger(log.NewTerminalHandlerWithLevel(os.Stdout, log.LevelInfo, true))
+	log.SetDefault(logger)
+
+	client, err := ethclient.Dial("http://190.102.110.75:8545")
+	if err != nil {
+		t.Fatalf("dial RPC: %v", err)
+
+	}
+	wg := &sync.WaitGroup{}
+
+	roninGatewayABI, _ := ronin_gateway.RoninGatewayMetaData.GetAbi()
+	tpABI, _ := transparent_proxy_v2.TransparentProxyV2MetaData.GetAbi()
+
+	withdrawalRequestedMatcher := event_handler.NewMatcher(
+		[]common.Address{
+			common.HexToAddress("0x0CF8fF40a508bdBc39fBe1Bb679dCBa64E65C7Df"),
+		},
+		roninGatewayABI.Events["WithdrawalRequested"].ID,
+		nil,
+		nil,
+		nil,
+	)
+	withdrawalRequestTracker := event_tracker.NewRequestWithdrawalTracker(
+		wg,
+		ctx,
+		50, withdrawalRequestedMatcher.ReceiveOnlyCh())
+
+	upgradedMatcher := event_handler.NewMatcher(
+		[]common.Address{
+			common.HexToAddress("0x0CF8fF40a508bdBc39fBe1Bb679dCBa64E65C7Df"),
+		},
+		tpABI.Events["Upgraded"].ID,
+		nil,
+		nil,
+		nil,
+	)
+	upgradedTracker := event_tracker.NewUpgradeTracker(
+		wg,
+		ctx,
+		50, upgradedMatcher.ReceiveOnlyCh())
+
+	adminChangedMatcher := event_handler.NewMatcher(
+		[]common.Address{
+			common.HexToAddress("0x0CF8fF40a508bdBc39fBe1Bb679dCBa64E65C7Df"),
+		},
+		tpABI.Events["AdminChanged"].ID,
+		nil,
+		nil,
+		nil,
+	)
+	adminChangedTracker := event_tracker.NewChangeAdminTracker(
+		wg,
+		ctx,
+		50, adminChangedMatcher.ReceiveOnlyCh())
+
+	targets := util.AggregateAddresses(
+		append(append(withdrawalRequestedMatcher.Froms(), upgradedMatcher.Froms()...), adminChangedMatcher.Froms()...)...,
+	)
+	topics := util.AggregateTopics(
+		[]common.Hash{
+			withdrawalRequestedMatcher.Topic0(),
+			upgradedMatcher.Topic0(),
+			adminChangedMatcher.Topic0(),
+		},
+		[]common.Hash{},
+		[]common.Hash{},
+		[]common.Hash{},
+	)
+
+	filterer := event_filterer.NewEventFilterer(
+		ctx, wg,
+		100*time.Millisecond,
+		"[ronin] fetching events",
+		[]*ethclient.Client{client},
+		targets, topics,
+		1000, // batch size
+		10,   // workers
+		14_765_762,
+		41758294,
+		// 15_765_762,
+	)
+
+	handler := event_handler.NewEventHandler(
+		ctx,
+		wg,
+		filterer.ReceiveOnlyCh(),
+		10, // workers
+	)
+
+	handler.AddMatcher(withdrawalRequestedMatcher)
+	handler.AddMatcher(upgradedMatcher)
+	handler.AddMatcher(adminChangedMatcher)
+
+	handler.Start()
+
+	withdrawalRequestTracker.Start()
+	upgradedTracker.Start()
+	adminChangedTracker.Start()
 
 	filterer.Start()
 
 	wg.Wait()
+	log.Info("All workers finished")
+
+	// Summarize the trackers
+	withdrawalRequestTracker.Summarize()
+	upgradedTracker.Summarize()
+	adminChangedTracker.Summarize()
 }
