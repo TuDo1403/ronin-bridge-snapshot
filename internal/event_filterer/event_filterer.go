@@ -21,6 +21,7 @@ type EventFilterer struct {
 	queries []*ethereum.FilterQuery
 	clients []*ethclient.Client
 	outCh   chan []*types.Log
+	doneCh  chan struct{}
 
 	nWorker      int
 	batchSize    int
@@ -94,6 +95,7 @@ func NewEventFilterer(
 		queries:      queries,
 		clients:      clients,
 		outCh:        make(chan []*types.Log, 10_000),
+		doneCh:       make(chan struct{}),
 		nWorker:      nWorker,
 		batchSize:    batchSize,
 		pollInterval: pollInterval,
@@ -133,6 +135,10 @@ func (ef *EventFilterer) ReceiveOnlyCh() <-chan []*types.Log {
 	return ef.outCh
 }
 
+func (ef *EventFilterer) DoneCh() <-chan struct{} {
+	return ef.doneCh
+}
+
 // worker continually processes queries until none remain.
 func (ef *EventFilterer) worker(i int) {
 	defer ef.wg.Done()
@@ -160,6 +166,8 @@ func (ef *EventFilterer) worker(i int) {
 			ef.progressBar.Add(1)
 			if ef.fulfilled.Add(1) == int32(len(ef.queries)) {
 				ef.progressBar.Finish()
+				// Signal done channel when all queries are processed.
+				ef.doneCh <- struct{}{}
 				return
 			}
 		}

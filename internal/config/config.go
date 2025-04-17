@@ -44,7 +44,7 @@ type AppConfig struct {
 }
 
 func (a *AppConfig) String() string {
-	return fmt.Sprintf("LogLevel=%s, PollInterval=%dms, RoninRpcs=%v, MainchainRpcs=%v", a.LogLevel, a.PollInterval, len(a.Config.NetworkConfig[a.Config.Ronin].RpcEndpoints), len(a.Config.NetworkConfig[a.Config.Mainchain].RpcEndpoints))
+	return fmt.Sprintf("LogLevel=%s, PollInterval=%dms, RoninRpcs=%v, RoninGw=%s, MainchainRpcs=%v, MainchainGw=%s", a.LogLevel, a.PollInterval, len(a.Config.NetworkConfig[a.Config.Ronin].RpcEndpoints), a.Ronin.Gateway, len(a.Config.NetworkConfig[a.Config.Mainchain].RpcEndpoints), a.Mainchain.Gateway)
 }
 
 func NewAppConfig(filePath string) *AppConfig {
@@ -73,13 +73,15 @@ func NewAppConfig(filePath string) *AppConfig {
 	appCfg.Ctx, appCfg.Cancel = context.WithCancel(context.Background())
 
 	if cfg.LogLevel == "debug" {
-		appCfg.LogLevel = slog.LevelDebug
+		appCfg.LogLevel = log.LevelDebug
 	} else if cfg.LogLevel == "info" {
-		appCfg.LogLevel = slog.LevelInfo
+		appCfg.LogLevel = log.LevelInfo
 	} else if cfg.LogLevel == "warn" {
-		appCfg.LogLevel = slog.LevelWarn
+		appCfg.LogLevel = log.LevelWarn
 	} else if cfg.LogLevel == "error" {
-		appCfg.LogLevel = slog.LevelError
+		appCfg.LogLevel = log.LevelError
+	} else if cfg.LogLevel == "trace" {
+		appCfg.LogLevel = log.LevelTrace
 	} else {
 		log.Crit("Invalid log level", "logLevel", cfg.LogLevel)
 	}

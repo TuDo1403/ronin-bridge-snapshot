@@ -12,7 +12,7 @@ import (
 /* ─────────────────────────  EventHandler  ───────────────────────── */
 
 type EventHandler struct {
-	inCh    <-chan []*types.Log // fan‑in from filterers
+	inChs   []<-chan []*types.Log // fan‑in from filterers
 	ctx     context.Context
 	wg      *sync.WaitGroup
 	workers int
@@ -23,13 +23,16 @@ type EventHandler struct {
 
 /* ---------- constructor & lifecycle ----------------------------------- */
 
-func NewEventHandler(ctx context.Context, in <-chan []*types.Log, nWorker int) *EventHandler {
+func NewEventHandler(ctx context.Context, ins []<-chan []*types.Log, nWorker int) *EventHandler {
 	eh := &EventHandler{
-		inCh:    in,
+		inChs:   ins,
 		workers: nWorker,
 		ctx:     ctx,
 		wg:      &sync.WaitGroup{},
 		byTopic: make(map[common.Hash][]*Matcher),
+	}
+	if eh.inChs == nil {
+		eh.inChs = make([]<-chan []*types.Log, 0)
 	}
 
 	return eh
@@ -41,8 +44,8 @@ func (eh *EventHandler) AddMatcher(m *Matcher) {
 	eh.byTopic[m.topic0] = append(eh.byTopic[m.topic0], m)
 }
 
-func (eh *EventHandler) SetInCh(in <-chan []*types.Log) {
-	eh.inCh = in
+func (eh *EventHandler) AddInCh(in <-chan []*types.Log) {
+	eh.inChs = append(eh.inChs, in)
 }
 
 func (eh *EventHandler) GetMatchers() []*Matcher {
@@ -74,26 +77,50 @@ func (eh *EventHandler) Start() {
 
 /* ------------------------------ worker -------------------------------- */
 
-func (eh *EventHandler) worker(id int) {
+func (eh *EventHandler) worker(i int) {
 	defer eh.wg.Done()
+
+	closed := make(map[int]bool)
 
 	for {
 		select {
 		case <-eh.ctx.Done():
 			return
+		default:
+			// Count how many channels are still open
+			nAlive := 0
+			for idx, inCh := range eh.inChs {
+				if closed[idx] {
+					continue
+				}
 
-		case batch, ok := <-eh.inCh:
-			if !ok {
+				select {
+				case logs, ok := <-inCh:
+					if !ok {
+						closed[idx] = true
+						continue
+					}
+					for _, lg := range logs {
+						eh.dispatch(lg)
+					}
+				case <-eh.ctx.Done():
+					return
+				default:
+					// No data ready on this channel, continue to the next
+				}
+
+				// If not closed, count it as alive
+				if !closed[idx] {
+					nAlive++
+				}
+			}
+
+			// If all input channels are closed, we can safely stop this worker
+			if nAlive == 0 {
+				log.Info("event-handler", "msg", "all input channels closed", "worker", i)
 				return
 			}
 
-			if len(batch) == 0 {
-				continue
-			}
-
-			for _, lg := range batch {
-				eh.dispatch(lg)
-			}
 		}
 	}
 }

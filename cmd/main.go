@@ -25,13 +25,13 @@ func main() {
 	log.SetDefault(logger)
 
 	requestWithdrawalTracker := event_tracker.NewRequestWithdrawalTracker(cfg.Ctx, 10, cfg.Ronin.ExcludeTxHashes, nil)
-	requestWithdrawalMatcher := event_handler.NewMatcher(
+	withdrawalRequested := event_handler.NewMatcher(
 		util.ToSingletonArray(cfg.Ronin.Gateway),
-		requestWithdrawalTracker.GetAbi().Events["RequestWithdrawal"].ID,
+		requestWithdrawalTracker.GetAbi().Events["WithdrawalRequested"].ID,
 		nil,
 		nil, nil,
 	)
-	requestWithdrawalTracker.SetInCh(requestWithdrawalMatcher.ReceiveOnlyCh())
+	requestWithdrawalTracker.SetInCh(withdrawalRequested.ReceiveOnlyCh())
 
 	withdrawalTracker := event_tracker.NewWithdrewTracker(cfg.Ctx, 10, cfg.Mainchain.ExcludeTxHashes, nil)
 	withdrewMatcher := event_handler.NewMatcher(
@@ -49,8 +49,11 @@ func main() {
 		cfg.Clients[cfg.Config.Ronin],
 		util.ToSingletonArray(cfg.Ronin.Gateway),
 		util.AggregateTopics([]common.Hash{
-			requestWithdrawalMatcher.Topic0()}, nil, nil, nil),
-		cfg.Ronin.QueryBatchSize, 20, cfg.Ronin.StartBlock, cfg.Ronin.EndBlock,
+			withdrawalRequested.Topic0()}, nil, nil, nil),
+		cfg.Ronin.QueryBatchSize,
+		20,
+		cfg.Ronin.StartBlock,
+		cfg.Ronin.EndBlock,
 	)
 	mainchainFilterer := event_filterer.NewEventFilterer(
 		cfg.Ctx,
@@ -60,14 +63,20 @@ func main() {
 		util.ToSingletonArray(cfg.Mainchain.Gateway),
 		util.AggregateTopics([]common.Hash{
 			withdrewMatcher.Topic0()}, nil, nil, nil),
-		cfg.Mainchain.QueryBatchSize, 20, cfg.Mainchain.StartBlock, cfg.Mainchain.EndBlock,
+		cfg.Mainchain.QueryBatchSize,
+		20,
+		cfg.Mainchain.StartBlock,
+		cfg.Mainchain.EndBlock,
 	)
 
 	eventHandler := event_handler.NewEventHandler(cfg.Ctx, nil, 50)
-	eventHandler.AddMatcher(requestWithdrawalMatcher)
+	eventHandler.AddMatcher(withdrawalRequested)
 	eventHandler.AddMatcher(withdrewMatcher)
-	eventHandler.SetInCh(roninFilterer.ReceiveOnlyCh())
-	eventHandler.SetInCh(mainchainFilterer.ReceiveOnlyCh())
+	eventHandler.AddInCh(roninFilterer.ReceiveOnlyCh())
+	eventHandler.AddInCh(mainchainFilterer.ReceiveOnlyCh())
+
+	roninDoneCh := roninFilterer.DoneCh()
+	mainchainDoneCh := mainchainFilterer.DoneCh()
 
 	// Start all components
 	requestWithdrawalTracker.Start()
@@ -76,13 +85,19 @@ func main() {
 	roninFilterer.Start()
 	mainchainFilterer.Start()
 
+	<-roninDoneCh
+	<-mainchainDoneCh
+
+	log.Info("Ronin/Mainchain filterer done")
+
 	// Wait for a signal to stop
 	mainchainFilterer.Stop()
+	roninFilterer.Stop()
 	eventHandler.Stop()
 	withdrawalTracker.Stop()
 	requestWithdrawalTracker.Stop()
 
 	// Summarize the trackers
-	requestWithdrawalTracker.Summarize()
 	withdrawalTracker.Summarize()
+	requestWithdrawalTracker.Summarize()
 }

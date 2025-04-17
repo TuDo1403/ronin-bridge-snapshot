@@ -13,14 +13,19 @@ import (
 type WithdrewTracker struct {
 	*Tracker
 	receiptHashes2Info map[common.Hash]*mainchain_gateway.TransferReceipt
-	excludeTxHashes    map[common.Hash]bool
+	excludeTxHashes    map[common.Hash]struct{}
 }
 
 func NewWithdrewTracker(ctx context.Context, nWorker int, excludeTxHashes []common.Hash, in <-chan *types.Log) *WithdrewTracker {
+	excludeTxHashesMap := make(map[common.Hash]struct{})
+	for _, txHash := range excludeTxHashes {
+		excludeTxHashesMap[txHash] = struct{}{}
+	}
+
 	w := &WithdrewTracker{
 		Tracker:            NewTracker(ctx, "Withdrew", nWorker, in, nil),
 		receiptHashes2Info: make(map[common.Hash]*mainchain_gateway.TransferReceipt),
-		excludeTxHashes:    make(map[common.Hash]bool),
+		excludeTxHashes:    excludeTxHashesMap,
 	}
 
 	w.Tracker.callback = w.Record
@@ -112,7 +117,7 @@ func (w *WithdrewTracker) Record(e *types.Log) error {
 }
 
 func (w *WithdrewTracker) validate(e *mainchain_gateway.MainchainGatewayWithdrew) bool {
-	if w.excludeTxHashes[e.Raw.TxHash] {
+	if _, ok := w.excludeTxHashes[e.Raw.TxHash]; ok {
 		log.Warn("Transaction hash is excluded", "TxHash", e.Raw.TxHash.String())
 		return false
 	}

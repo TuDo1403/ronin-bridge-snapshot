@@ -12,7 +12,8 @@ import (
 
 type RequestWithdrawalTracker struct {
 	*Tracker
-	receiptHashes2Info map[common.Hash]*ronin_gateway.TransferReceipt
+	receiptHash2Info   map[common.Hash]*ronin_gateway.TransferReceipt
+	receiptHash2TxHash map[common.Hash]common.Hash
 	excludeTxHashes    map[common.Hash]struct{}
 }
 
@@ -23,7 +24,8 @@ func NewRequestWithdrawalTracker(ctx context.Context, nWorker int, excludeTxHash
 	}
 	r := &RequestWithdrawalTracker{
 		Tracker:            NewTracker(ctx, "WithdrawalRequested", nWorker, in, nil),
-		receiptHashes2Info: make(map[common.Hash]*ronin_gateway.TransferReceipt),
+		receiptHash2Info:   make(map[common.Hash]*ronin_gateway.TransferReceipt),
+		receiptHash2TxHash: make(map[common.Hash]common.Hash),
 		excludeTxHashes:    excludeTxHashesMap,
 	}
 
@@ -36,8 +38,8 @@ func (r *RequestWithdrawalTracker) GetReceiptHashes() []common.Hash {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	receiptHashes := make([]common.Hash, 0, len(r.receiptHashes2Info))
-	for receiptHash := range r.receiptHashes2Info {
+	receiptHashes := make([]common.Hash, 0, len(r.receiptHash2Info))
+	for receiptHash := range r.receiptHash2Info {
 		receiptHashes = append(receiptHashes, receiptHash)
 	}
 	return receiptHashes
@@ -47,7 +49,7 @@ func (r *RequestWithdrawalTracker) GetReceiptHashInfo(receiptHash common.Hash) *
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	return r.receiptHashes2Info[receiptHash]
+	return r.receiptHash2Info[receiptHash]
 }
 
 func (r *RequestWithdrawalTracker) Summarize() {
@@ -64,7 +66,7 @@ func (r *RequestWithdrawalTracker) Summarize() {
 	erc721Count := 0
 	erc1155Count := 0
 
-	for _, receipt := range r.receiptHashes2Info {
+	for receiptHash, receipt := range r.receiptHash2Info {
 		if receipt.Info.Quantity == big.NewInt(0) || receipt.Info.Erc != 0 {
 			if receipt.Info.Erc == 1 {
 				erc721Count++
@@ -73,6 +75,15 @@ func (r *RequestWithdrawalTracker) Summarize() {
 				erc1155Count++
 			}
 
+			continue
+		}
+
+		if receipt.Info.Quantity.Cmp(big.NewInt(0)) == 0 {
+			log.Warn("Quantity is zero", "receiptHash", receiptHash.Hex(), "txHash", r.receiptHash2TxHash[receiptHash].Hex())
+			continue
+		}
+		if receipt.Info.Erc != 0 {
+			log.Warn("Erc is not zero", "receiptHash", receiptHash.Hex(), "txHash", r.receiptHash2TxHash[receiptHash].Hex())
 			continue
 		}
 
@@ -110,7 +121,8 @@ func (r *RequestWithdrawalTracker) Record(e *types.Log) error {
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.receiptHashes2Info[event.ReceiptHash] = &event.Arg1
+	r.receiptHash2Info[event.ReceiptHash] = &event.Arg1
+	r.receiptHash2TxHash[event.ReceiptHash] = e.TxHash
 	return nil
 }
 
