@@ -45,6 +45,7 @@ func NewTracker(ctx context.Context, desc string, nWorker int, in <-chan *types.
 		wg:         &sync.WaitGroup{},
 		nWorker:    nWorker,
 		callback:   cb,
+		desc:       desc,
 	}
 }
 

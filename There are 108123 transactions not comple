@@ -1,0 +1,24 @@
+There are 108123 transactions not completed withdrawals
+124283992 SLP
+519167.414972 USDC
+139.424774665578459416 BANANA
+4.000000000000000000 LUA
+0.00022053 WBTC
+45.000000000000000000 YGG
+1934.277107917761744755 WETH
+14543.290152198439058492 AXS
+8355.014711670565231581 PIXEL
+10323.944265587027368100 APRS
+34290.999000000000000000 AGG
+
+INFO [04-18|13:48:00.801] Pending withdrawal                       addr=0x3429d03c6F7521AeC737a0BBF2E5ddcef2C3Ae31 metadata="PIXEL (PIXEL) - 18" "amount (wei)"=8355014711670565231581 "amount (eth)"=8355.015
+INFO [04-18|13:48:00.801] Pending withdrawal                       addr=0x95b4B8CaD3567B5d7EF7399C2aE1d7070692aB0D metadata="Aperios (APRS) - 18" "amount (wei)"=10323944265587027368100 "amount (eth)"=10323.944
+INFO [04-18|13:48:00.801] Pending withdrawal                       addr=0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599 metadata="Wrapped BTC (WBTC) - 8" "amount (wei)"=22053                   "amount (eth)"=0.000
+INFO [04-18|13:48:00.801] Pending withdrawal                       addr=0x25f8087EAD173b73D6e8B84329989A8eEA16CF73 metadata="Yield Guild Games Token (YGG) - 18" "amount (wei)"=45000000000000000000    "amount (eth)"=45.000
+INFO [04-18|13:48:00.801] Pending withdrawal                       addr=0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2 metadata="Wrapped Ether (WETH) - 18"          "amount (wei)"=1934277107917761744755  "amount (eth)"=1934.277
+INFO [04-18|13:48:00.801] Pending withdrawal                       addr=0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48 metadata="USD Coin (USDC) - 6"                "amount (wei)"=519167414972            "amount (eth)"=519167.415
+INFO [04-18|13:48:00.801] Pending withdrawal                       addr=0x94e496474F1725f1c1824cB5BDb92d7691A4F03a metadata="Banana (BANANA) - 18"               "amount (wei)"=139424774665578459416   "amount (eth)"=139.425
+INFO [04-18|13:48:00.801] Pending withdrawal                       addr=0x88D100432F98956b16B66Df56962FD3e5cCd297A metadata="Lumi Finance Token (LUA) - 18"      "amount (wei)"=4000000000000000000     "amount (eth)"=4.000
+INFO [04-18|13:48:00.802] Pending withdrawal                       addr=0xFB0489e9753B045DdB35e39c6B0Cc02EC6b99AC5 metadata="AGG (AGG) - 18"                     "amount (wei)"=34290999000000000000000 "amount (eth)"=34290.999
+INFO [04-18|13:48:00.802] Pending withdrawal                       addr=0xCC8Fa225D80b9c7D42F96e9570156c65D6cAAa25 metadata="Smooth Love Potion (SLP) - 0"       "amount (wei)"=124283992               "amount (eth)"=124283992.000
+INFO [04-18|13:48:00.802] Pending withdrawal                       addr=0xBB0E17EF65F82Ab018d8EDd776e8DD940327B28b metadata="Axie Infinity Shard (AXS) - 18"     "amount (wei)"=14543290152198439058492 "amount (eth)"=14543.290

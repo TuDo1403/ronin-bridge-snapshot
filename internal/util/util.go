@@ -2,14 +2,32 @@ package util
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"math"
 	"math/big"
-	"ronin-bridge-snapshot/internal/abi/erc20"
+	"ronin-bridge-snapshot/generated/contract/erc20"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/ethclient"
 )
+
+func BatchTokenAddr2Name(
+	ctx context.Context,
+	client *ethclient.Client,
+	tokenAddrs []common.Address,
+) map[common.Address]map[string]string {
+	names := make(map[common.Address]map[string]string)
+	for _, tokenAddr := range tokenAddrs {
+		name, symbol, decimal := FetchERC20Metadata(ctx, client, tokenAddr)
+		names[tokenAddr] = map[string]string{
+			"name":     name,
+			"symbol":   symbol,
+			"decimals": fmt.Sprintf("%d", decimal),
+		}
+	}
+	return names
+}
 
 func ToSingletonArray(addr common.Address) []common.Address {
 	return []common.Address{addr}

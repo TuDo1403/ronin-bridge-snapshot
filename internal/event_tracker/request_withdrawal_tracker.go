@@ -3,7 +3,7 @@ package event_tracker
 import (
 	"context"
 	"math/big"
-	"ronin-bridge-snapshot/internal/abi/ronin_gateway"
+	"ronin-bridge-snapshot/generated/contract/ronin_gateway_v3"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
@@ -12,7 +12,7 @@ import (
 
 type RequestWithdrawalTracker struct {
 	*Tracker
-	receiptHash2Info   map[common.Hash]*ronin_gateway.TransferReceipt
+	receiptHash2Info   map[common.Hash]*ronin_gateway_v3.TransferReceipt
 	receiptHash2TxHash map[common.Hash]common.Hash
 	excludeTxHashes    map[common.Hash]struct{}
 }
@@ -24,12 +24,12 @@ func NewRequestWithdrawalTracker(ctx context.Context, nWorker int, excludeTxHash
 	}
 	r := &RequestWithdrawalTracker{
 		Tracker:            NewTracker(ctx, "WithdrawalRequested", nWorker, in, nil),
-		receiptHash2Info:   make(map[common.Hash]*ronin_gateway.TransferReceipt),
+		receiptHash2Info:   make(map[common.Hash]*ronin_gateway_v3.TransferReceipt),
 		receiptHash2TxHash: make(map[common.Hash]common.Hash),
 		excludeTxHashes:    excludeTxHashesMap,
 	}
 
-	r.Tracker.iface, _ = ronin_gateway.RoninGatewayMetaData.GetAbi()
+	r.Tracker.iface, _ = ronin_gateway_v3.RoninGatewayV3MetaData.GetAbi()
 	r.Tracker.callback = r.Record
 	return r
 }
@@ -45,14 +45,14 @@ func (r *RequestWithdrawalTracker) GetReceiptHashes() []common.Hash {
 	return receiptHashes
 }
 
-func (r *RequestWithdrawalTracker) GetReceiptHashInfo(receiptHash common.Hash) *ronin_gateway.TransferReceipt {
+func (r *RequestWithdrawalTracker) GetReceiptHashInfo(receiptHash common.Hash) *ronin_gateway_v3.TransferReceipt {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
 	return r.receiptHash2Info[receiptHash]
 }
 
-func (r *RequestWithdrawalTracker) Summarize() {
+func (r *RequestWithdrawalTracker) Summarize() (erc20ReceiptHashes, erc721ReceiptHashes, erc1155ReceiptHashes, nullERC20ReceiptHashes map[common.Hash]*ronin_gateway_v3.TransferReceipt, tokenAmounts map[common.Address]*big.Int) {
 	log.Info("#### Summarizing RequestWithdrawal events ####")
 
 	r.Tracker.mu.Lock()
@@ -60,53 +60,61 @@ func (r *RequestWithdrawalTracker) Summarize() {
 
 	count := r.Total()
 
-	tokenAmounts := make(map[common.Address]*big.Int)
 	txCount := make(map[common.Address]int)
-	erc20Count := 0
-	erc721Count := 0
-	erc1155Count := 0
+
+	tokenAmounts = make(map[common.Address]*big.Int)
+	erc721ReceiptHashes = make(map[common.Hash]*ronin_gateway_v3.TransferReceipt)
+	erc1155ReceiptHashes = make(map[common.Hash]*ronin_gateway_v3.TransferReceipt)
+	erc20ReceiptHashes = make(map[common.Hash]*ronin_gateway_v3.TransferReceipt)
+	nullERC20ReceiptHashes = make(map[common.Hash]*ronin_gateway_v3.TransferReceipt)
 
 	for receiptHash, receipt := range r.receiptHash2Info {
 		if receipt.Info.Quantity == big.NewInt(0) || receipt.Info.Erc != 0 {
 			if receipt.Info.Erc == 1 {
-				erc721Count++
+				erc721ReceiptHashes[receiptHash] = receipt
 			}
 			if receipt.Info.Erc == 2 {
-				erc1155Count++
+				erc1155ReceiptHashes[receiptHash] = receipt
 			}
 
 			continue
 		}
 
 		if receipt.Info.Quantity.Cmp(big.NewInt(0)) == 0 {
-			log.Warn("Quantity is zero", "receiptHash", receiptHash.Hex(), "txHash", r.receiptHash2TxHash[receiptHash].Hex())
+			log.Debug("Quantity is zero", "receiptHash", receiptHash.Hex(), "txHash", r.receiptHash2TxHash[receiptHash].Hex())
+			nullERC20ReceiptHashes[receiptHash] = receipt
 			continue
 		}
 		if receipt.Info.Erc != 0 {
-			log.Warn("Erc is not zero", "receiptHash", receiptHash.Hex(), "txHash", r.receiptHash2TxHash[receiptHash].Hex())
+			log.Debug("Not ERC20", "receiptHash", receiptHash.Hex(), "txHash", r.receiptHash2TxHash[receiptHash].Hex())
 			continue
 		}
 
-		tokenAddr := receipt.Ronin.TokenAddr
-		if _, ok := tokenAmounts[tokenAddr]; !ok {
-			tokenAmounts[tokenAddr] = new(big.Int)
-		}
+		if receipt.Info.Quantity.Cmp(big.NewInt(0)) > 0 && receipt.Info.Erc == 0 {
+			erc20ReceiptHashes[receiptHash] = receipt
 
-		erc20Count++
-		txCount[tokenAddr]++
-		tokenAmounts[tokenAddr].Add(tokenAmounts[tokenAddr], receipt.Info.Quantity)
+			tokenAddr := receipt.Ronin.TokenAddr
+			if _, ok := tokenAmounts[tokenAddr]; !ok {
+				tokenAmounts[tokenAddr] = new(big.Int)
+			}
+
+			txCount[tokenAddr]++
+			tokenAmounts[tokenAddr].Add(tokenAmounts[tokenAddr], receipt.Info.Quantity)
+		}
 	}
 
-	log.Info("Total RequestWithdrawal events", "total", count, "erc20", erc20Count, "erc721", erc721Count, "erc1155", erc1155Count)
+	log.Info("Total RequestWithdrawal events", "total", count, "erc20", len(erc20ReceiptHashes), "erc721", len(erc721ReceiptHashes), "erc1155", len(erc1155ReceiptHashes))
 
 	for token, amount := range tokenAmounts {
 		log.Info("Token", "address", token.Hex(), "txCount", txCount[token], "total", amount.String())
 	}
+
+	return erc20ReceiptHashes, erc721ReceiptHashes, erc1155ReceiptHashes, nullERC20ReceiptHashes, tokenAmounts
 }
 
 func (r *RequestWithdrawalTracker) Record(e *types.Log) error {
 	log.Trace("Processing RequestWithdrawal event", "txHash", e.TxHash.Hex())
-	event := new(ronin_gateway.RoninGatewayWithdrawalRequested)
+	event := new(ronin_gateway_v3.RoninGatewayV3WithdrawalRequested)
 	parseEvent(r.iface, event, "WithdrawalRequested", e)
 	event.Raw = *e
 
@@ -126,9 +134,9 @@ func (r *RequestWithdrawalTracker) Record(e *types.Log) error {
 	return nil
 }
 
-func (r *RequestWithdrawalTracker) validate(e *ronin_gateway.RoninGatewayWithdrawalRequested) bool {
+func (r *RequestWithdrawalTracker) validate(e *ronin_gateway_v3.RoninGatewayV3WithdrawalRequested) bool {
 	if _, ok := r.excludeTxHashes[e.Raw.TxHash]; ok {
-		log.Warn("Transaction hash is excluded", "TxHash", e.Raw.TxHash.String())
+		log.Debug("Transaction hash is excluded", "TxHash", e.Raw.TxHash.String())
 		return false
 	}
 
