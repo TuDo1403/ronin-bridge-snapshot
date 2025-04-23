@@ -135,6 +135,37 @@ func BigIntToFloat(amount *big.Int, decimals int) float64 {
 	return f
 }
 
+func FetchTokenBalance(
+	ctx context.Context,
+	client *ethclient.Client,
+	tokenAddr common.Address,
+	accountAddr common.Address,
+) *big.Int {
+	if (tokenAddr == common.Address{} || IsWETH(tokenAddr)) {
+		bal, err := client.BalanceAt(ctx, accountAddr, nil)
+		if err != nil {
+			log.Fatal("failed to fetch ETH balance", "error", err)
+		}
+		return bal
+	}
+
+	token, err := erc20.NewErc20Caller(tokenAddr, client)
+	if err != nil {
+		log.Fatal("failed to create token contract", "error", err)
+	}
+
+	balance, err := token.BalanceOf(nil, accountAddr)
+	if err != nil {
+		log.Fatal("failed to fetch token balance", "error", err)
+	}
+
+	return balance
+}
+
+func IsWETH(tokenAddr common.Address) bool {
+	return tokenAddr == common.HexToAddress("0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2")
+}
+
 func FetchERC20Metadata(ctx context.Context, client *ethclient.Client, tokenAddr common.Address) (name string, symbol string, decimals int) {
 	if (tokenAddr == common.Address{}) {
 		return "ETH", "ETH", 18

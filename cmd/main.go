@@ -161,8 +161,15 @@ func generateReport(appCfg *config.AppConfig, roninERC20Receipts, roninNullERC20
 			continue
 		}
 
+		currBalance := util.FetchTokenBalance(appCfg.Ctx, appCfg.Clients[appCfg.Config.Mainchain][0], tokenAddr, appCfg.Mainchain.Gateway)
+		migratableLiquidity := new(big.Int).Sub(currBalance, amount)
+
 		vDecimals, _ := strconv.Atoi(decimals)
 
 		log.Info("Pending withdrawal", "addr", tokenAddr.Hex(), "metadata", fmt.Sprintf("%s (%s) - %v", name, symbol, decimals), "wei", amount.String(), "eth", util.BigIntToFloat(amount, vDecimals))
+		fmt.Println()
+		log.Info("Current balance", "addr", tokenAddr.Hex(), "metadata", fmt.Sprintf("%s (%s) - %v", name, symbol, decimals), "wei", currBalance.String(), "eth", util.BigIntToFloat(currBalance, vDecimals))
+		log.Info("Migratable liquidity", "addr", tokenAddr.Hex(), "metadata", fmt.Sprintf("%s (%s) - %v", name, symbol, decimals), "wei", migratableLiquidity, "eth", util.BigIntToFloat(migratableLiquidity, vDecimals))
+		fmt.Println()
 	}
 }

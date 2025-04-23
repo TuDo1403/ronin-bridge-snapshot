@@ -26,7 +26,7 @@ network-config:
       - https://api-partner.roninchain.com/rpc
     gateway: 0x0CF8fF40a508bdBc39fBe1Bb679dCBa64E65C7Df
     start-block: 14765762
-    end-block: 41758294
+    end-block: 44489562
     query-batch-size: 5000
     tokens:
       - 0x0b7007c13325c48911f73a2dad5fa5dcbf808adc
@@ -67,7 +67,7 @@ network-config:
       - https://eth.rpc.blxrbdn.com
     gateway: 0x64192819Ac13Ef72bF6b5AE239AC672B43a9AF08
     start-block: 15006576
-    end-block: 21644966
+    end-block: 22324281
     query-batch-size: 10000
     exclude-tx-hashes:
       - 0x2619570088683e6cc3a38d93c3d98899e5783864e15525d5f5810c11189ba6cb
