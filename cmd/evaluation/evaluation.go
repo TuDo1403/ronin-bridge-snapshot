@@ -152,7 +152,7 @@ func main() {
 			continue
 		}
 
-		result := rec[3]
+		result := rec[2]
 		won := result == "true"
 
 		// both bots always pick HEADS
