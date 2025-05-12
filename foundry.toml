@@ -58,8 +58,6 @@ runs = 1_000
 [profile.min-solc-via-ir.fuzz]
 runs = 1_000
 
-[etherscan]
-sepolia = { key = "${ETHERSCAN_API_KEY}", chain = 11155111, url = "https://api-sepolia.etherscan.io/api" }
 
 [rpc_endpoints]
 localhost = "http://localhost:8545"

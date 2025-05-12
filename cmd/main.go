@@ -249,9 +249,9 @@ func main() {
 		if !ok {
 			log.Crit("Failed to parse ConfigId", "ConfigId", info.ConfigId.String())
 		}
-		if configId2Token[uint16(configId.Uint64())] != common.HexToAddress("0x0000000000000000000000000000000000000000") {
-			continue
-		}
+		// if configId2Token[uint16(configId.Uint64())] != common.HexToAddress("0x0000000000000000000000000000000000000000") {
+		// 	continue
+		// }
 
 		vrfChoice := false // true = head, false = tail
 

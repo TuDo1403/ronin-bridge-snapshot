@@ -26,7 +26,7 @@ network-config:
       - https://api-partner.roninchain.com/rpc
     gateway: 0x744b467ce265dbc5078b43036271aec378821b2d
     start-block: 44895603
-    end-block: 44988643
+    end-block: 45037826
     query-batch-size: 5000
     tokens:
       - 0x0b7007c13325c48911f73a2dad5fa5dcbf808adc
